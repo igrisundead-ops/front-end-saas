@@ -10,4 +10,10 @@ export const ENDPOINTS = {
 
   // Resend endpoint accepts { email } or uses auth context depending on your Xano setup.
   resendVerification: '<PASTE_XANO_RESEND_VERIFY_PATH>',
+
+  // Password reset: request sends a reset link to the user's email.
+  requestPasswordReset: '/auth/request-password-reset',
+
+  // Password reset: reset accepts { token, password } to set the new password.
+  resetPassword: '/auth/reset-password',
 } as const

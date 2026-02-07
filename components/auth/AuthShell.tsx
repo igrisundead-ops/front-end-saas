@@ -11,9 +11,10 @@ type AuthShellProps = {
   subtitle: string;
   children: React.ReactNode;
   showMobileBrandRow?: boolean;
+  showOAuth?: boolean;
 };
 
-export function AuthShell({ title, subtitle, children, showMobileBrandRow = true }: AuthShellProps) {
+export function AuthShell({ title, subtitle, children, showMobileBrandRow = true, showOAuth = true }: AuthShellProps) {
   return (
     <main className="relative md:h-screen md:overflow-hidden lg:grid lg:grid-cols-2">
       <div className="bg-muted/60 relative hidden h-full flex-col border-r p-10 lg:flex">
@@ -65,22 +66,26 @@ export function AuthShell({ title, subtitle, children, showMobileBrandRow = true
             <p className="text-muted-foreground text-base">{subtitle}</p>
           </div>
 
-          <div className="space-y-2">
-            <Button type="button" size="lg" className="w-full">
-              <GoogleIcon className="size-4 me-2" />
-              Continue with Google
-            </Button>
-            <Button type="button" size="lg" className="w-full">
-              <AppleIcon className="size-4 me-2" />
-              Continue with Apple
-            </Button>
-            <Button type="button" size="lg" className="w-full">
-              <GithubIcon className="size-4 me-2" />
-              Continue with GitHub
-            </Button>
-          </div>
+          {showOAuth ? (
+            <>
+              <div className="space-y-2">
+                <Button type="button" size="lg" className="w-full">
+                  <GoogleIcon className="size-4 me-2" />
+                  Continue with Google
+                </Button>
+                <Button type="button" size="lg" className="w-full">
+                  <AppleIcon className="size-4 me-2" />
+                  Continue with Apple
+                </Button>
+                <Button type="button" size="lg" className="w-full">
+                  <GithubIcon className="size-4 me-2" />
+                  Continue with GitHub
+                </Button>
+              </div>
 
-          <AuthSeparator />
+              <AuthSeparator />
+            </>
+          ) : null}
 
           {children}
 
