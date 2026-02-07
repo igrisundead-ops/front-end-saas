@@ -353,7 +353,7 @@ export function VideoUploadInterface() {
                         name: item.name ?? item.styleKey ?? "Untitled",
                         description: item.description ?? "",
                         tags: item.tags,
-                        previewSrc: item.thumbUrl ?? item.imageUrl ?? null,
+                        previewSrc: item.imageUrl ?? item.thumbUrl ?? null,
                         source: "airtable",
                     });
                 }
@@ -1036,14 +1036,14 @@ export function VideoUploadInterface() {
                                             )}
                                         >
                                             <div className="flex gap-3">
-                                                <div className="relative h-16 w-24 shrink-0 overflow-hidden rounded-lg border border-white/10">
+                                                <div className="group/thumb relative h-16 w-24 shrink-0 overflow-hidden rounded-lg border border-white/10">
                                                     {style.previewSrc && !failedImages[style.previewSrc] ? (
                                                         <Image
                                                             src={style.previewSrc}
                                                             alt={`${style.name} preview`}
                                                             fill
-                                                            className="object-cover"
-                                                            sizes="96px"
+                                                            className="object-cover blur-[2px] transition-[filter] duration-500 ease-out group-hover/thumb:blur-0"
+                                                            sizes="192px"
                                                             unoptimized
                                                             onError={() =>
                                                                 setFailedImages((m) => ({
