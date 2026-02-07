@@ -38,17 +38,31 @@ import { STYLE_TEMPLATES } from "@/lib/styles/style-templates";
 import { createProcessingJob, createProject, getActiveStyleId, getJobStatus, startProcessing as persistStartProcessing, setActiveStyleId as persistActiveStyleId } from "@/lib/mock";
 import type { ProcessingJob } from "@/lib/types";
 
+type AirtableImageItem = {
+    id: string;
+    name: string | null;
+    styleKey: string | null;
+    description: string | null;
+    imageUrl: string | null;
+    thumbUrl: string | null;
+    hasAttachment: boolean;
+    tags: string[];
+    updatedTime: string;
+};
+
 type AirtableImageArchiveResponse = {
-    items: Array<{
-        id: string;
-        name: string | null;
-        styleKey: string | null;
-        imageUrl: string | null;
-        thumbUrl: string | null;
-        hasAttachment: boolean;
-        tags: string[];
-        updatedTime: string;
-    }>;
+    items: AirtableImageItem[];
+    configured?: boolean;
+};
+
+/** Unified style shape used for rendering cards — built from Airtable or local fallback */
+type DisplayStyle = {
+    id: string;
+    name: string;
+    description: string;
+    tags: string[];
+    previewSrc: string | null;
+    source: "airtable" | "local";
 };
 
 interface UseAutoResizeTextareaProps {
@@ -196,7 +210,7 @@ export function VideoUploadInterface() {
     const [, startTransition] = useTransition();
 
     const [templatesOpen, setTemplatesOpen] = useState(false);
-    const [airtableStylePreviews, setAirtableStylePreviews] = useState<Record<string, string>>({});
+    const [displayStyles, setDisplayStyles] = useState<DisplayStyle[] | null>(null);
     const [failedImages, setFailedImages] = useState<Record<string, true>>({});
     const [activeStyleId, setActiveStyleId] = useState<string | null>(null);
     const [projectId, setProjectId] = useState<string | null>(null);
@@ -208,8 +222,8 @@ export function VideoUploadInterface() {
     const [activeSlashCommand, setActiveSlashCommand] = useState<ActiveSlashCommand | null>(null);
 
     const activeStyle = React.useMemo(
-        () => STYLE_TEMPLATES.find((s) => s.id === activeStyleId) ?? null,
-        [activeStyleId]
+        () => (displayStyles ?? []).find((s) => s.id === activeStyleId) ?? null,
+        [activeStyleId, displayStyles]
     );
 
     const commandSuggestions: CommandSuggestion[] = [
@@ -301,58 +315,68 @@ export function VideoUploadInterface() {
     useEffect(() => {
         let cancelled = false;
 
-        const norm = (s: string) =>
-            s
-                .toLowerCase()
-                .trim()
-                .replace(/[^a-z0-9]+/g, "-")
-                .replace(/(^-|-$)/g, "");
-
-        async function loadAirtableStylePreviews() {
+        async function loadStyles() {
             try {
                 const res = await fetch("/api/airtable/images?limit=200", { cache: "no-store" });
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-                const data = (await res.json()) as AirtableImageArchiveResponse & { configured?: boolean };
+                const data = (await res.json()) as AirtableImageArchiveResponse;
 
-                // If Airtable is not configured, skip silently
-                if (data.configured === false) {
-    
-                    if (!cancelled) setAirtableStylePreviews({});
+                // If Airtable is not configured or returned no items, fall back to local templates
+                if (data.configured === false || !data.items?.length) {
+                    if (!cancelled) {
+                        setDisplayStyles(
+                            STYLE_TEMPLATES.map((t) => ({
+                                id: t.id,
+                                name: t.name,
+                                description: t.description,
+                                tags: t.tags,
+                                previewSrc: t.previewImages[0] ?? null,
+                                source: "local" as const,
+                            }))
+                        );
+                    }
                     return;
                 }
 
+                // Build display styles directly from Airtable rows — deduplicate by styleKey/name
+                const seen = new Set<string>();
+                const styles: DisplayStyle[] = [];
 
+                for (const item of data.items) {
+                    const key = item.styleKey ?? item.name ?? item.id;
+                    if (seen.has(key)) continue;
+                    seen.add(key);
 
-                // Build a map: normalized key -> single image URL (first match wins)
-                const byStyle: Record<string, string> = {};
-
-                for (const item of data.items ?? []) {
-                    const src = item.thumbUrl ?? item.imageUrl ?? null;
-                    if (!src) continue;
-
-                    // Index by styleKey and name separately — exact normalized keys only
-                    const keys: string[] = [];
-                    if (item.styleKey) keys.push(norm(item.styleKey));
-                    if (item.name) keys.push(norm(item.name));
-
-                    for (const key of keys) {
-                        if (!key) continue;
-                        // First image for this key wins
-                        if (!byStyle[key]) byStyle[key] = src;
-                    }
+                    styles.push({
+                        id: item.styleKey ?? item.id,
+                        name: item.name ?? item.styleKey ?? "Untitled",
+                        description: item.description ?? "",
+                        tags: item.tags,
+                        previewSrc: item.thumbUrl ?? item.imageUrl ?? null,
+                        source: "airtable",
+                    });
                 }
 
-
-
-                if (!cancelled) setAirtableStylePreviews(byStyle);
+                if (!cancelled) setDisplayStyles(styles);
             } catch (err) {
-                console.error("[v0] Failed to load Airtable Image Archive previews", err);
-                if (!cancelled) setAirtableStylePreviews({});
+                console.error("[v0] Failed to load styles from Airtable, using local fallback", err);
+                if (!cancelled) {
+                    setDisplayStyles(
+                        STYLE_TEMPLATES.map((t) => ({
+                            id: t.id,
+                            name: t.name,
+                            description: t.description,
+                            tags: t.tags,
+                            previewSrc: t.previewImages[0] ?? null,
+                            source: "local" as const,
+                        }))
+                    );
+                }
             }
         }
 
-        loadAirtableStylePreviews();
+        loadStyles();
         return () => {
             cancelled = true;
         };
@@ -970,111 +994,112 @@ export function VideoUploadInterface() {
                             Select one active style. Previews loaded from Airtable.
                         </SheetDescription>
                         <div className="mt-1 text-[11px] leading-tight text-white/45">
-                            {Object.keys(airtableStylePreviews).length > 0 ? (
+                            {displayStyles === null ? (
+                                <span className="text-white/35">Loading styles...</span>
+                            ) : displayStyles[0]?.source === "airtable" ? (
                                 <span className="text-green-400/70">
-                                    Airtable connected: {Object.keys(airtableStylePreviews).length} style previews loaded
+                                    Airtable connected: {displayStyles.length} styles loaded
                                 </span>
                             ) : (
                                 <span className="text-white/35">
-                                    Loading Airtable previews...
+                                    Using {displayStyles.length} local styles (Airtable not configured)
                                 </span>
                             )}
                         </div>
                     </SheetHeader>
                     <div className="flex-1 overflow-y-auto overscroll-contain px-6 pb-6 pt-4 space-y-4">
-                        <div className="grid gap-3">
-                            {STYLE_TEMPLATES.map((template) => {
-                                const selected = template.id === activeStyleId;
+                        {displayStyles === null ? (
+                            <div className="flex items-center justify-center py-12 text-sm text-white/40">
+                                Loading styles...
+                            </div>
+                        ) : displayStyles.length === 0 ? (
+                            <div className="flex items-center justify-center py-12 text-sm text-white/40">
+                                No styles found. Add styles to your Airtable table.
+                            </div>
+                        ) : (
+                            <div className="grid gap-3">
+                                {displayStyles.map((style) => {
+                                    const selected = style.id === activeStyleId;
+                                    return (
+                                        <button
+                                            key={style.id}
+                                            onClick={() => {
+                                                setActiveStyleId(style.id);
+                                                persistActiveStyleId(style.id);
+                                                setTemplatesOpen(false);
+                                            }}
+                                            className={cn(
+                                                "w-full text-left rounded-xl border p-4 transition-colors transition-shadow",
+                                                selected
+                                                    ? "border-purple-400/30 bg-purple-500/10 shadow-[0_0_0_1px_rgba(168,85,247,0.16)]"
+                                                    : "border-white/10 bg-white/[0.02] hover:bg-white/[0.05] hover:border-purple-400/30 hover:shadow-[0_0_0_1px_rgba(168,85,247,0.12)]"
+                                            )}
+                                        >
+                                            <div className="flex gap-3">
+                                                <div className="relative h-16 w-24 shrink-0 overflow-hidden rounded-lg border border-white/10">
+                                                    {style.previewSrc && !failedImages[style.previewSrc] ? (
+                                                        <Image
+                                                            src={style.previewSrc}
+                                                            alt={`${style.name} preview`}
+                                                            fill
+                                                            className="object-cover"
+                                                            sizes="96px"
+                                                            unoptimized
+                                                            onError={() =>
+                                                                setFailedImages((m) => ({
+                                                                    ...m,
+                                                                    [style.previewSrc!]: true,
+                                                                }))
+                                                            }
+                                                        />
+                                                    ) : (
+                                                        <div className="flex h-full w-full items-center justify-center bg-white/[0.03] text-white/40">
+                                                            <ImageIcon className="h-4 w-4" />
+                                                        </div>
+                                                    )}
+                                                </div>
 
-                                const norm = (s: string) =>
-                                    s
-                                        .toLowerCase()
-                                        .trim()
-                                        .replace(/[^a-z0-9]+/g, "-")
-                                        .replace(/(^-|-$)/g, "");
-
-                                // Build exact-match candidates only (no partial/fuzzy matching)
-                                const candidates = [
-                                    template.id,
-                                    template.name,
-                                    template.id.replace(/^style_/, ""),
-                                    template.id.replace(/_/g, "-"),
-                                    template.id.replace(/^style_/, "").replace(/_/g, "-"),
-                                ].map(norm);
-
-                                const matchedKey = candidates.find((k) => !!airtableStylePreviews[k]);
-
-                                // Single preview image: Airtable match or first local fallback
-                                const airtableSrc = matchedKey ? airtableStylePreviews[matchedKey] : null;
-                                const previewSrc = airtableSrc ?? template.previewImages[0] ?? null;
-                                const source = airtableSrc ? "airtable" : "fallback";
-                                return (
-                                    <button
-                                        key={template.id}
-                                        onClick={() => {
-                                            setActiveStyleId(template.id);
-                                            persistActiveStyleId(template.id);
-                                            setTemplatesOpen(false);
-                                        }}
-                                        className={cn(
-                                            "w-full text-left rounded-xl border p-4 transition-colors transition-shadow",
-                                            selected
-                                                ? "border-purple-400/30 bg-purple-500/10 shadow-[0_0_0_1px_rgba(168,85,247,0.16)]"
-                                                : "border-white/10 bg-white/[0.02] hover:bg-white/[0.05] hover:border-purple-400/30 hover:shadow-[0_0_0_1px_rgba(168,85,247,0.12)]"
-                                        )}
-                                    >
-                                        <div className="flex gap-3">
-                                            {/* Single preview thumbnail */}
-                                            <div className="relative h-16 w-24 shrink-0 overflow-hidden rounded-lg border border-white/10">
-                                                {previewSrc && !failedImages[previewSrc] ? (
-                                                    <Image
-                                                        src={previewSrc}
-                                                        alt={`${template.name} preview`}
-                                                        fill
-                                                        className="object-cover"
-                                                        sizes="96px"
-                                                        unoptimized
-                                                        onError={() =>
-                                                            setFailedImages((m) => ({ ...m, [previewSrc]: true }))
-                                                        }
-                                                    />
-                                                ) : (
-                                                    <div className="flex h-full w-full items-center justify-center bg-white/[0.03] text-white/40">
-                                                        <ImageIcon className="h-4 w-4" />
-                                                    </div>
-                                                )}
-                                            </div>
-
-                                            <div className="flex-1">
-                                                <div className="flex items-center justify-between gap-3">
-                                                    <div className="text-sm font-semibold text-white/90">{template.name}</div>
-                                                    <div className="flex items-center gap-2">
-                                                        <Badge
-                                                            variant="secondary"
-                                                            className={cn(
-                                                                "text-[10px] px-2 py-0.5",
-                                                                source === "airtable"
-                                                                    ? "bg-green-500/15 text-green-400/80 border-green-400/20"
-                                                                    : "bg-white/5 text-white/40 border-white/10"
+                                                <div className="flex-1">
+                                                    <div className="flex items-center justify-between gap-3">
+                                                        <div className="text-sm font-semibold text-white/90">{style.name}</div>
+                                                        <div className="flex items-center gap-2">
+                                                            <Badge
+                                                                variant="secondary"
+                                                                className={cn(
+                                                                    "text-[10px] px-2 py-0.5",
+                                                                    style.source === "airtable"
+                                                                        ? "bg-green-500/15 text-green-400/80 border-green-400/20"
+                                                                        : "bg-white/5 text-white/40 border-white/10"
+                                                                )}
+                                                            >
+                                                                {style.source === "airtable" ? "Airtable" : "Local"}
+                                                            </Badge>
+                                                            {selected ? (
+                                                                <Badge variant="success">Active</Badge>
+                                                            ) : (
+                                                                <Badge variant="secondary">Style</Badge>
                                                             )}
-                                                        >
-                                                            {source === "airtable" ? "Airtable" : "Local"}
-                                                        </Badge>
-                                                        {selected ? <Badge variant="success">Active</Badge> : <Badge variant="secondary">Style</Badge>}
+                                                        </div>
                                                     </div>
-                                                </div>
-                                                <div className="mt-1 text-xs text-white/45">{template.description}</div>
-                                                <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                                                    {template.tags.map((tag) => (
-                                                        <Badge key={tag} variant="secondary">{tag}</Badge>
-                                                    ))}
+                                                    {style.description && (
+                                                        <div className="mt-1 text-xs text-white/45">{style.description}</div>
+                                                    )}
+                                                    {style.tags.length > 0 && (
+                                                        <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                                                            {style.tags.map((tag) => (
+                                                                <Badge key={tag} variant="secondary">
+                                                                    {tag}
+                                                                </Badge>
+                                                            ))}
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </div>
-                                        </div>
-                                    </button>
-                                );
-                            })}
-                        </div>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        )}
                     </div>
                 </SheetContent>
             </Sheet>

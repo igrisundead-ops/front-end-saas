@@ -23,6 +23,7 @@ export type NormalizedAirtableImageItem = {
   id: string
   name: string | null
   styleKey: string | null
+  description: string | null
   imageUrl: string | null
   thumbUrl: string | null
   hasAttachment: boolean
@@ -106,6 +107,20 @@ function normalizeRecord(record: AirtableRecord): NormalizedAirtableImageItem {
       ])
     ) ?? null
 
+  const description =
+    asString(
+      pickField(fields, [
+        'Description',
+        'description',
+        'Desc',
+        'desc',
+        'Notes',
+        'notes',
+        'Summary',
+        'summary',
+      ])
+    ) ?? null
+
   const tags = asStringArray(pickField(fields, ['Tags', 'tags', 'Tag', 'tag']))
 
   const attachments = asAttachmentArray(
@@ -167,6 +182,7 @@ function normalizeRecord(record: AirtableRecord): NormalizedAirtableImageItem {
     id: record.id,
     name,
     styleKey,
+    description,
     imageUrl,
     thumbUrl,
     hasAttachment,
