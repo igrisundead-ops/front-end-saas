@@ -310,7 +310,7 @@ export function VideoUploadInterface() {
 
         async function loadAirtableStylePreviews() {
             try {
-                const res = await fetch("/api/airtable/images?limit=200", { cache: "no-store" });
+                const res = await fetch("/api/airtable/images?limit=20", { cache: "no-store" });
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
                 const data = (await res.json()) as AirtableImageArchiveResponse;
@@ -1027,7 +1027,7 @@ export function VideoUploadInterface() {
                                                                     fill
                                                                     className="object-cover"
                                                                     sizes="96px"
-                                                                    unoptimized
+                                                                    loading="lazy"
                                                                     onError={() =>
                                                                         setFailedImages((m) => ({ ...m, [src]: true }))
                                                                     }
@@ -1054,7 +1054,7 @@ export function VideoUploadInterface() {
                                                             fill
                                                             className="object-cover"
                                                             sizes="100vw"
-                                                            unoptimized
+                                                            loading="lazy"
                                                             onError={() =>
                                                                 setFailedImages((m) => ({
                                                                     ...m,

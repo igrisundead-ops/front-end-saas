@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
-export function VerifyForm() {
+function VerifyFormInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const token = searchParams.get('token') ?? undefined
@@ -128,5 +128,13 @@ export function VerifyForm() {
         </div>
       </div>
     </div>
+  )
+}
+
+export function VerifyForm() {
+  return (
+    <React.Suspense fallback={<div className="text-sm text-white/60">Loading...</div>}>
+      <VerifyFormInner />
+    </React.Suspense>
   )
 }
