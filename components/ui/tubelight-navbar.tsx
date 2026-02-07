@@ -1,7 +1,8 @@
 "use client"
 
 import * as React from "react"
-import { motion } from "framer-motion"
+import { motion, useReducedMotion } from "framer-motion"
+import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import type { LucideIcon } from "lucide-react"
 
@@ -17,10 +18,20 @@ interface NavBarProps {
 }
 
 export function NavBar({ items, className }: NavBarProps) {
+  const reduced = useReducedMotion()
+  const pathname = usePathname()
   const [activeIndex, setActiveIndex] = React.useState(0)
   const [hoveredIndex, setHoveredIndex] = React.useState<number | null>(null)
 
   const activeItem = hoveredIndex !== null ? hoveredIndex : activeIndex
+
+  React.useEffect(() => {
+    const idx = items.findIndex((it) => {
+      if (it.url === "/") return pathname === "/"
+      return pathname === it.url || pathname.startsWith(`${it.url}/`)
+    })
+    if (idx >= 0) setActiveIndex(idx)
+  }, [items, pathname])
 
   return (
     <nav
@@ -46,7 +57,7 @@ export function NavBar({ items, className }: NavBarProps) {
                 isActive ? "text-white" : "text-white/60 hover:text-white/80"
               )}
             >
-              {isActive && (
+              {isActive && !reduced && (
                 <motion.div
                   layoutId="tubelight"
                   className="absolute inset-0 rounded-full bg-gradient-to-r from-purple-600/80 to-violet-600/80"
@@ -57,6 +68,14 @@ export function NavBar({ items, className }: NavBarProps) {
                     type: "spring",
                     stiffness: 400,
                     damping: 30
+                  }}
+                />
+              )}
+              {isActive && reduced && (
+                <div
+                  className="absolute inset-0 rounded-full bg-gradient-to-r from-purple-600/60 to-violet-600/60"
+                  style={{
+                    boxShadow: "0 0 20px rgba(147, 51, 234, 0.25)",
                   }}
                 />
               )}

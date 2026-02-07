@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useCallback, useTransition } from "react";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { cn } from "@/lib/utils";
 import {
     Video,
@@ -18,14 +20,36 @@ import {
     LoaderIcon,
     Sparkles,
     Command,
+    Grid3X3,
     ImageIcon, // Added import for ImageIcon
     Link as LinkIcon
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import * as React from "react";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { SendPopup } from "@/components/ui/send-popup";
 import { FileUpload } from "@/components/ui/file-upload";
-import { CardStack, type CardStackItem } from "@/components/ui/card-stack";
-import { ChatInput, ChatInputTextArea, ChatInputSubmit } from "@/components/ui/chat-input";
+import { STYLE_TEMPLATES } from "@/lib/styles/style-templates";
+import { createProcessingJob, createProject, getActiveStyleId, getJobStatus, startProcessing as persistStartProcessing, setActiveStyleId as persistActiveStyleId } from "@/lib/mock";
+import type { ProcessingJob } from "@/lib/types";
+
+type AirtableImageArchiveResponse = {
+    items: Array<{
+        id: string;
+        name: string | null;
+        styleKey: string | null;
+        imageUrl: string | null;
+        thumbUrl: string | null;
+        hasAttachment: boolean;
+        tags: string[];
+        updatedTime: string;
+    }>;
+};
 
 interface UseAutoResizeTextareaProps {
     minHeight: number;
@@ -91,6 +115,17 @@ interface TextareaProps
   showRing?: boolean;
 }
 
+type SlashCommandKey = "clone" | "improve";
+const SLASH_COMMANDS = {
+    clone: { label: "Clone Editing Style", raw: "/clone" },
+    improve: { label: "Improve", raw: "/improve" },
+} as const;
+type ActiveSlashCommand = {
+    key: SlashCommandKey;
+    label: (typeof SLASH_COMMANDS)[SlashCommandKey]["label"];
+    raw: (typeof SLASH_COMMANDS)[SlashCommandKey]["raw"];
+};
+
 const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
   ({ className, containerClassName, showRing = true, ...props }, ref) => {
     const [isFocused, setIsFocused] = React.useState(false);
@@ -141,32 +176,12 @@ const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
 Textarea.displayName = "Textarea"
 
 export function VideoUploadInterface() {
+    const router = useRouter();
     const [value, setValue] = useState("");
     const [showCommandPalette, setShowCommandPalette] = useState(false);
     const [showFileUploadModal, setShowFileUploadModal] = useState(false);
-    const [showProcessingModal, setShowProcessingModal] = useState(false);
     const [uploadedFileName, setUploadedFileName] = useState<string>("");
     const [uploadedVideoUrl, setUploadedVideoUrl] = useState<string>("");
-    const [processingSteps, setProcessingSteps] = useState<Array<{id: number; title: string; status: 'pending' | 'processing' | 'complete'}>>(
-        [
-            { id: 1, title: 'Video Analysis', status: 'pending' },
-            { id: 2, title: 'Scene Detection', status: 'pending' },
-            { id: 3, title: 'Audio Processing', status: 'pending' },
-            { id: 4, title: 'AI Enhancement', status: 'pending' }
-        ]
-    );
-    const [currentStep, setCurrentStep] = useState(0);
-    const [chatValue, setChatValue] = useState("");
-    const [chatLoading, setChatLoading] = useState(false);
-
-    const handleChatSubmit = () => {
-        setChatLoading(true);
-        setTimeout(() => {
-            console.log("Chat message:", chatValue);
-            setChatValue("");
-            setChatLoading(false);
-        }, 1000);
-    };
     const [recentCommand, setRecentCommand] = useState<string | null>(null);
     const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
     const { textareaRef, adjustHeight } = useAutoResizeTextarea({
@@ -178,7 +193,24 @@ export function VideoUploadInterface() {
     const [activeSuggestion, setActiveSuggestion] = useState(-1);
     const [attachments, setAttachments] = useState<string[]>([]);
     const [isTyping, setIsTyping] = useState(false);
-    const [startTransition] = useTransition();
+    const [, startTransition] = useTransition();
+
+    const [templatesOpen, setTemplatesOpen] = useState(false);
+    const [airtableStylePreviews, setAirtableStylePreviews] = useState<Record<string, string[]>>({});
+    const [failedImages, setFailedImages] = useState<Record<string, true>>({});
+    const [activeStyleId, setActiveStyleId] = useState<string | null>(null);
+    const [projectId, setProjectId] = useState<string | null>(null);
+    const [job, setJob] = useState<ProcessingJob | null>(null);
+    const [sendOpen, setSendOpen] = useState(false);
+
+    const [sourceProvider, setSourceProvider] = useState("YouTube");
+    const [sourceUrl, setSourceUrl] = useState("");
+    const [activeSlashCommand, setActiveSlashCommand] = useState<ActiveSlashCommand | null>(null);
+
+    const activeStyle = React.useMemo(
+        () => STYLE_TEMPLATES.find((s) => s.id === activeStyleId) ?? null,
+        [activeStyleId]
+    );
 
     const commandSuggestions: CommandSuggestion[] = [
         { 
@@ -196,6 +228,11 @@ export function VideoUploadInterface() {
     ];
 
     useEffect(() => {
+        if (activeSlashCommand) {
+            setShowCommandPalette(false);
+            return;
+        }
+
         if (value.startsWith('/') && !value.includes(' ')) {
             setShowCommandPalette(true);
             
@@ -211,7 +248,21 @@ export function VideoUploadInterface() {
         } else {
             setShowCommandPalette(false);
         }
-    }, [value]);
+    }, [activeSlashCommand, value]);
+
+    useEffect(() => {
+        if (activeSlashCommand) return;
+        const match = value.match(/^\/(clone|improve)\s+/);
+        if (!match) return;
+        const key = match[1] as SlashCommandKey;
+        setActiveSlashCommand({
+            key,
+            label: SLASH_COMMANDS[key].label,
+            raw: SLASH_COMMANDS[key].raw,
+        });
+        setValue(value.replace(/^\/(clone|improve)\s+/, ""));
+        adjustHeight(true);
+    }, [activeSlashCommand, adjustHeight, value]);
 
     useEffect(() => {
         const handleMouseMove = (e: MouseEvent) => {
@@ -223,6 +274,82 @@ export function VideoUploadInterface() {
             window.removeEventListener('mousemove', handleMouseMove);
         };
     }, []);
+
+    useEffect(() => {
+        const id = getActiveStyleId();
+        setActiveStyleId(id && id.length > 0 ? id : null);
+    }, []);
+
+    useEffect(() => {
+        if (process.env.NODE_ENV !== "development") return;
+        if (typeof window === "undefined") return;
+
+        const w = window as unknown as { __airtableVerifyChecklistLogged?: boolean };
+        if (w.__airtableVerifyChecklistLogged) return;
+        w.__airtableVerifyChecklistLogged = true;
+
+        console.log(
+            [
+                "[Airtable] Run and verify:",
+                "1) Verify health: open /api/airtable/health",
+                "2) Verify items: open /api/airtable/images?limit=5",
+                "3) UI: open Templates and Styles modal, look for Airtable/Local badge",
+            ].join("\n")
+        );
+    }, []);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        const norm = (s: string) =>
+            s
+                .toLowerCase()
+                .trim()
+                .replace(/[^a-z0-9]+/g, "-")
+                .replace(/(^-|-$)/g, "");
+
+        async function loadAirtableStylePreviews() {
+            try {
+                const res = await fetch("/api/airtable/images?limit=200", { cache: "no-store" });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+                const data = (await res.json()) as AirtableImageArchiveResponse;
+                const byStyle: Record<string, string[]> = {};
+
+                for (const item of data.items ?? []) {
+                    const styleKey = norm((item.styleKey ?? "").trim());
+                    const src = item.thumbUrl ?? item.imageUrl ?? null;
+                    if (!styleKey || !src) continue;
+                    (byStyle[styleKey] ??= []).push(src);
+                }
+
+                for (const key of Object.keys(byStyle)) {
+                    byStyle[key] = Array.from(new Set(byStyle[key])).slice(0, 3);
+                }
+
+                if (process.env.NODE_ENV === "development") {
+                    console.log("[Airtable] styleKeys:", Object.keys(byStyle).slice(0, 20));
+                }
+                if (!cancelled) setAirtableStylePreviews(byStyle);
+            } catch (err) {
+                console.error("Failed to load Airtable Image Archive previews", err);
+                if (!cancelled) setAirtableStylePreviews({});
+            }
+        }
+
+        loadAirtableStylePreviews();
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
+    useEffect(() => {
+        if (!projectId) return;
+        const tick = () => setJob(getJobStatus(projectId));
+        tick();
+        const t = window.setInterval(tick, 200);
+        return () => window.clearInterval(t);
+    }, [projectId]);
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -243,6 +370,15 @@ export function VideoUploadInterface() {
     }, []);
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        if (activeSlashCommand && e.key === "Backspace") {
+            const el = textareaRef.current;
+            if (el && el.selectionStart === 0 && el.selectionEnd === 0) {
+                e.preventDefault();
+                setActiveSlashCommand(null);
+                return;
+            }
+        }
+
         if (showCommandPalette) {
             if (e.key === 'ArrowDown') {
                 e.preventDefault();
@@ -270,28 +406,69 @@ export function VideoUploadInterface() {
             }
         } else if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
-            if (value.trim()) {
+            const trimmed = value.trim();
+            if (!activeSlashCommand && (trimmed === "/clone" || trimmed === "/improve")) {
+                const key = trimmed.slice(1) as SlashCommandKey;
+                setActiveSlashCommand({ key, label: SLASH_COMMANDS[key].label, raw: SLASH_COMMANDS[key].raw });
+                setValue("");
+                adjustHeight(true);
+                return;
+            }
+
+            if (trimmed || activeSlashCommand) {
                 handleSendMessage();
             }
         }
     };
 
     const handleSendMessage = () => {
-        if (value.trim()) {
-            startTransition(() => {
-                setIsTyping(true);
-                setTimeout(() => {
-                    setIsTyping(false);
-                    setValue("");
-                    adjustHeight(true);
-                }, 3000);
-            });
+        const message = value.trim();
+        const prompt = activeSlashCommand
+            ? `${activeSlashCommand.raw}${message ? ` ${message}` : ""}`
+            : message;
+        if (!prompt) return;
+        if (job?.status === "running") {
+            setSendOpen(true);
+            return;
         }
+
+        startTransition(() => {
+            setIsTyping(true);
+
+            const titleBase =
+                uploadedFileName?.trim().length > 0
+                    ? uploadedFileName.replace(/\.[^/.]+$/, "")
+                    : (message || activeSlashCommand?.label || prompt).slice(0, 28);
+
+            const project = createProject({ title: titleBase || "PROMETHEUS Project" });
+            setProjectId(project.id);
+
+            const nextJob = createProcessingJob({
+                projectId: project.id,
+                input: {
+                    prompt,
+                    sources: attachments,
+                    styleId: activeStyleId ?? undefined,
+                },
+            });
+            persistStartProcessing(nextJob);
+            setJob(nextJob);
+            setSendOpen(true);
+            setActiveSlashCommand(null);
+
+            window.setTimeout(() => setIsTyping(false), 650);
+        });
     };
 
     const handleAttachFile = () => {
         const mockFileName = `file-${Math.floor(Math.random() * 1000)}.mp4`;
-        setAttachments(prev => [...prev, mockFileName]);
+        setAttachments(prev => (prev.includes(mockFileName) ? prev : [mockFileName, ...prev]));
+    };
+
+    const addSourceChip = (label: string) => {
+        const trimmed = label.trim();
+        if (!trimmed) return;
+        setAttachments((prev) => (prev.includes(trimmed) ? prev : [trimmed, ...prev]));
     };
 
     const removeAttachment = (index: number) => {
@@ -393,7 +570,38 @@ export function VideoUploadInterface() {
                             )}
                         </AnimatePresence>
 
-                        <div className="p-4">
+                        <div className="p-4 space-y-3">
+                            <AnimatePresence>
+                                {activeSlashCommand && (
+                                    <motion.div
+                                        initial={{ opacity: 0, y: 6, scale: 0.98 }}
+                                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                                        exit={{ opacity: 0, y: 6, scale: 0.98 }}
+                                        transition={{ duration: 0.18, ease: "easeOut" }}
+                                        className="flex items-center justify-between gap-3 rounded-xl border border-purple-400/20 bg-purple-500/10 px-3 py-2"
+                                    >
+                                        <div className="flex items-center gap-2 min-w-0">
+                                            <Sparkles className="w-4 h-4 text-purple-200/90" />
+                                            <div className="min-w-0">
+                                                <div className="text-xs font-medium text-white/90 truncate">
+                                                    {activeSlashCommand.label}
+                                                </div>
+                                                <div className="text-[11px] text-white/45 truncate">
+                                                    {activeSlashCommand.raw}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => setActiveSlashCommand(null)}
+                                            className="p-1 rounded-lg hover:bg-white/10 text-white/50 hover:text-white/80 transition-colors"
+                                            aria-label="Remove command"
+                                        >
+                                            <XIcon className="w-4 h-4" />
+                                        </button>
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
                             <Textarea
                                 ref={textareaRef}
                                 value={value}
@@ -424,13 +632,33 @@ export function VideoUploadInterface() {
                         </div>
 
                         <AnimatePresence>
-                            {attachments.length > 0 && (
+                            {(attachments.length > 0 || !!activeStyle) && (
                                 <motion.div 
                                     className="px-4 pb-3 flex gap-2 flex-wrap"
                                     initial={{ opacity: 0, height: 0 }}
                                     animate={{ opacity: 1, height: "auto" }}
                                     exit={{ opacity: 0, height: 0 }}
                                 >
+                                    {activeStyle && (
+                                        <motion.div
+                                            className="flex items-center gap-2 text-xs bg-purple-500/10 border border-purple-400/20 py-1.5 px-3 rounded-lg text-white/80"
+                                            initial={{ opacity: 0, scale: 0.9 }}
+                                            animate={{ opacity: 1, scale: 1 }}
+                                            exit={{ opacity: 0, scale: 0.9 }}
+                                        >
+                                            <span>Style: {activeStyle.name}</span>
+                                            <button
+                                                onClick={() => {
+                                                    setActiveStyleId(null);
+                                                    persistActiveStyleId(null);
+                                                }}
+                                                className="text-white/40 hover:text-white transition-colors"
+                                                aria-label="Clear style"
+                                            >
+                                                <XIcon className="w-3 h-3" />
+                                            </button>
+                                        </motion.div>
+                                    )}
                                     {attachments.map((file, index) => (
                                         <motion.div
                                             key={index}
@@ -459,9 +687,25 @@ export function VideoUploadInterface() {
                                     onClick={() => setShowFileUploadModal(true)}
                                     whileTap={{ scale: 0.94 }}
                                     className="p-2 text-white/40 hover:text-white/90 rounded-lg transition-colors relative group"
-                                    title="Upload files"
+                                    title="Add source"
                                 >
                                     <LinkIcon className="w-4 h-4" />
+                                    <motion.span
+                                        className="absolute inset-0 bg-white/[0.05] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                                        layoutId="button-highlight"
+                                    />
+                                </motion.button>
+                                <motion.button
+                                    type="button"
+                                    onClick={() => setTemplatesOpen(true)}
+                                    whileTap={{ scale: 0.94 }}
+                                    className={cn(
+                                        "p-2 text-white/40 hover:text-white/90 rounded-lg transition-colors relative group",
+                                        templatesOpen && "bg-white/10 text-white/90"
+                                    )}
+                                    title="Templates and styles"
+                                >
+                                    <Grid3X3 className="w-4 h-4" />
                                     <motion.span
                                         className="absolute inset-0 bg-white/[0.05] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
                                         layoutId="button-highlight"
@@ -493,11 +737,11 @@ export function VideoUploadInterface() {
                                 onClick={handleSendMessage}
                                 whileHover={{ scale: 1.01 }}
                                 whileTap={{ scale: 0.98 }}
-                                disabled={isTyping || !value.trim()}
+                                disabled={isTyping || (!value.trim() && !activeSlashCommand)}
                                 className={cn(
                                     "px-4 py-2 rounded-lg text-sm font-medium transition-all",
                                     "flex items-center gap-2",
-                                    value.trim()
+                                    (value.trim() || activeSlashCommand)
                                         ? "bg-white text-[#0A0A0B] shadow-lg shadow-white/10"
                                         : "bg-white/[0.05] text-white/40"
                                 )}
@@ -542,193 +786,320 @@ export function VideoUploadInterface() {
                 </motion.div>
             </div>
 
-            {/* PROCESSING MODAL */}
-            <AnimatePresence>
-                {showProcessingModal && (
-                    <div>
-                        {/* Backdrop */}
-                        <motion.div
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            onClick={() => setShowProcessingModal(false)}
-                            className="fixed inset-0 z-[99] bg-black/60 backdrop-blur-sm"
-                        />
+            <SendPopup
+                open={sendOpen}
+                onOpenChange={setSendOpen}
+                onOpenEditor={() => {
+                    router.push(projectId ? `/editor/${projectId}` : "/editor");
+                }}
+            />
 
-                        {/* Centered Modal */}
-                        <motion.div
-                            initial={{ opacity: 0, scale: 0.95, y: 20 }}
-                            animate={{ opacity: 1, scale: 1, y: 0 }}
-                            exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                            className="fixed inset-0 z-[100] flex items-center justify-center p-4"
-                        >
-                            <div className="w-full max-w-3xl h-[80vh] bg-gradient-to-br from-white/5 to-black/40 border border-white/15 rounded-3xl shadow-[0_20px_80px_rgba(0,0,0,0.8),0_0_100px_rgba(139,92,246,0.25)] backdrop-blur-xl overflow-hidden flex flex-col">
-                                {/* Header with Close Button */}
-                                <div className="flex items-center justify-between px-8 py-6 border-b border-white/10">
-                                    <h2 className="text-lg font-semibold text-white">
-                                        PROMPT: <span className="text-white/60">{uploadedFileName}</span>
-                                    </h2>
-                                    <motion.button
-                                        whileHover={{ scale: 1.1 }}
-                                        whileTap={{ scale: 0.9 }}
-                                        onClick={() => setShowProcessingModal(false)}
-                                        className="p-2 hover:bg-white/10 rounded-lg transition-colors"
-                                    >
-                                        <XIcon className="w-5 h-5 text-white/80 hover:text-white" />
-                                    </motion.button>
-                                </div>
+            {/* ADD SOURCE MODAL */}
+            <Dialog open={showFileUploadModal} onOpenChange={setShowFileUploadModal}>
+                <DialogContent className="max-w-3xl p-0">
+                    <DialogHeader className="px-6 pt-6">
+                        <DialogTitle>Add Source</DialogTitle>
+                        <DialogDescription>
+                            Import links, uploads, integrations, brand kit, and references (mock).
+                        </DialogDescription>
+                    </DialogHeader>
 
-                                {/* Content */}
-                                <div className="flex-1 overflow-hidden flex gap-6 p-6">
-                                    {/* Left: Video + Chat */}
-                                    <div className="flex-1 flex flex-col gap-4">
-                                        {/* Video Preview */}
-                                        <motion.div 
-                                            initial={{ opacity: 0, scale: 0.95 }}
-                                            animate={{ opacity: 1, scale: 1 }}
-                                            transition={{ duration: 0.4 }}
-                                            className="relative flex-1 rounded-2xl overflow-hidden bg-black border border-white/20 shadow-[0_20px_60px_rgba(0,0,0,0.8),0_0_60px_rgba(139,92,246,0.2)]"
+                    <div className="px-6 pb-6">
+                        <Tabs defaultValue="link">
+                            <TabsList className="w-full">
+                                <TabsTrigger value="link" className="flex-1">Link</TabsTrigger>
+                                <TabsTrigger value="upload" className="flex-1">Upload</TabsTrigger>
+                                <TabsTrigger value="integrations" className="flex-1">Integrations</TabsTrigger>
+                                <TabsTrigger value="brand" className="flex-1">Brand Kit</TabsTrigger>
+                                <TabsTrigger value="refs" className="flex-1">References</TabsTrigger>
+                            </TabsList>
+
+                            <TabsContent value="link" className="space-y-4">
+                                <div className="flex flex-wrap gap-2">
+                                    {["YouTube", "Drive", "Dropbox", "Loom", "X", "TikTok"].map((p) => (
+                                        <button
+                                            key={p}
+                                            onClick={() => setSourceProvider(p)}
+                                            className={cn(
+                                                "rounded-full border px-3 py-1.5 text-xs transition-colors",
+                                                sourceProvider === p
+                                                    ? "border-purple-400/30 bg-purple-500/10 text-white"
+                                                    : "border-white/10 bg-white/[0.02] text-white/60 hover:bg-white/[0.05] hover:text-white/80"
+                                            )}
                                         >
-                                            <video
-                                                src={uploadedVideoUrl}
-                                                controls
-                                                className="w-full h-full object-contain"
-                                                autoPlay
-                                                muted
-                                            />
-                                        </motion.div>
-
-                                        {/* Chat Input */}
-                                        <motion.div
-                                            initial={{ opacity: 0, y: 10 }}
-                                            animate={{ opacity: 1, y: 0 }}
-                                            transition={{ duration: 0.4, delay: 0.2 }}
-                                            className="flex-shrink-0"
-                                        >
-                                            <ChatInput
-                                                variant="default"
-                                                value={chatValue}
-                                                onChange={(e) => setChatValue(e.target.value)}
-                                                onSubmit={handleChatSubmit}
-                                                loading={chatLoading}
-                                            >
-                                                <ChatInputTextArea 
-                                                    placeholder="Ask about your video..."
-                                                    rows={1}
-                                                />
-                                                <ChatInputSubmit />
-                                            </ChatInput>
-                                        </motion.div>
-                                    </div>
-
-                                    {/* Right: Processing Steps */}
-                                    <motion.div 
-                                        initial={{ opacity: 0, x: 20 }}
-                                        animate={{ opacity: 1, x: 0 }}
-                                        transition={{ duration: 0.4, delay: 0.1 }}
-                                        className="w-64 flex flex-col gap-4 bg-gradient-to-b from-white/5 to-transparent rounded-2xl p-5 border border-white/10 shadow-[0_20px_40px_rgba(0,0,0,0.6),0_0_40px_rgba(139,92,246,0.1)] backdrop-blur-sm overflow-y-auto"
-                                    >
-                                        <h3 className="text-sm font-semibold text-white/80 uppercase tracking-wide">Processing Status</h3>
-                                        <div className="space-y-3 flex-1">
-                                            {processingSteps.map((step, index) => (
-                                                <motion.div
-                                                    key={step.id}
-                                                    initial={{ opacity: 0, x: -20 }}
-                                                    animate={{ opacity: 1, x: 0 }}
-                                                    transition={{ delay: index * 0.1 }}
-                                                    className={cn(
-                                                        "p-4 rounded-xl border transition-all shadow-lg",
-                                                        step.status === 'complete' && "bg-green-500/15 border-green-500/40 shadow-[0_0_20px_rgba(34,197,94,0.15)]",
-                                                        step.status === 'processing' && "bg-blue-500/15 border-blue-500/40 shadow-[0_0_20px_rgba(59,130,246,0.15)]",
-                                                        step.status === 'pending' && "bg-white/5 border-white/15 shadow-[0_4px_12px_rgba(0,0,0,0.3)]"
-                                                    )}
-                                                >
-                                                    <div className="flex items-center gap-3">
-                                                        {step.status === 'processing' && (
-                                                            <motion.div
-                                                                animate={{ rotate: 360 }}
-                                                                transition={{ duration: 2, repeat: Number.POSITIVE_INFINITY }}
-                                                                className="w-4 h-4 border-2 border-blue-500/60 border-t-blue-500 rounded-full flex-shrink-0"
-                                                            />
-                                                        )}
-                                                        {step.status === 'complete' && (
-                                                            <div className="w-4 h-4 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
-                                                                <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                                                                </svg>
-                                                            </div>
-                                                        )}
-                                                        {step.status === 'pending' && (
-                                                            <div className="w-4 h-4 rounded-full border-2 border-white/20 flex-shrink-0" />
-                                                        )}
-                                                        <span className={cn(
-                                                            "text-sm font-medium",
-                                                            step.status === 'pending' && "text-white/60"
-                                                        )}>
-                                                            {step.title}
-                                                        </span>
-                                                    </div>
-                                                </motion.div>
-                                            ))}
-                                        </div>
-                                    </motion.div>
+                                            {p}
+                                        </button>
+                                    ))}
                                 </div>
-                            </div>
-                        </motion.div>
-                    </div>
-                )}
-            </AnimatePresence>
 
-            {/* FILE UPLOAD MODAL */}
-            <AnimatePresence>
-                {showFileUploadModal && (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        onClick={() => setShowFileUploadModal(false)}
-                        className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
-                    >
-                        <motion.div
-                            initial={{ scale: 0.95, opacity: 0 }}
-                            animate={{ scale: 1, opacity: 1 }}
-                            exit={{ scale: 0.95, opacity: 0 }}
-                            onClick={(e) => e.stopPropagation()}
-                            className="w-full max-w-2xl"
-                        >
-                            <div className="relative bg-gradient-to-b from-white/10 to-white/5 border border-white/10 rounded-xl backdrop-blur-xl">
-                                <div className="flex items-center justify-between p-6 border-b border-white/10">
-                                    <h2 className="text-xl font-semibold text-white">Upload Files</h2>
-                                    <button
-                                        onClick={() => setShowFileUploadModal(false)}
-                                        className="p-1 hover:bg-white/10 rounded-lg transition-colors"
-                                    >
-                                        <XIcon className="w-5 h-5 text-white/60 hover:text-white/90" />
-                                    </button>
-                                </div>
-                                <div className="p-6">
-                                    <FileUpload onChange={(files) => {
-                                        if (files.length > 0) {
-                                            setUploadedFileName(files[0].name);
-                                            const videoUrl = URL.createObjectURL(files[0]);
-                                            setUploadedVideoUrl(videoUrl);
+                                <div className="flex items-center gap-2">
+                                    <Input
+                                        value={sourceUrl}
+                                        onChange={(e) => setSourceUrl(e.target.value)}
+                                        placeholder="Paste a link…"
+                                    />
+                                    <Button
+                                        onClick={() => {
+                                            if (!sourceUrl.trim()) return;
+                                            addSourceChip(`${sourceProvider} imported`);
+                                            setSourceUrl("");
                                             setShowFileUploadModal(false);
-                                            setProcessingSteps([
-                                                { id: 1, title: 'Video Analysis', status: 'processing' },
-                                                { id: 2, title: 'Scene Detection', status: 'pending' },
-                                                { id: 3, title: 'Audio Processing', status: 'pending' },
-                                                { id: 4, title: 'AI Enhancement', status: 'pending' }
-                                            ]);
-                                            setCurrentStep(0);
-                                            setShowProcessingModal(true);
-                                        }
-                                    }} />
+                                        }}
+                                        className="bg-white text-[#0A0A0B] hover:bg-white/90"
+                                    >
+                                        Import
+                                    </Button>
                                 </div>
+                                <div className="text-xs text-white/45">
+                                    Supported: YouTube, Drive, Dropbox, Loom, X, TikTok (mock).
+                                </div>
+                            </TabsContent>
+
+                            <TabsContent value="upload" className="space-y-3">
+                                <div className="text-xs text-white/45">
+                                    Upload video/audio/srt/fonts/images (mock). Video preview uses a local object URL.
+                                </div>
+                                <FileUpload
+                                    onChange={(files) => {
+                                        if (files.length === 0) return;
+                                        const f = files[0]!;
+                                        setUploadedFileName(f.name);
+                                        try {
+                                            const url = URL.createObjectURL(f);
+                                            setUploadedVideoUrl(url);
+                                        } catch {
+                                            // ignore
+                                        }
+                                        addSourceChip(`Upload: ${f.name}`);
+                                        setShowFileUploadModal(false);
+                                    }}
+                                />
+                            </TabsContent>
+
+                            <TabsContent value="integrations" className="grid gap-3 sm:grid-cols-2">
+                                {[
+                                    { name: "Google Drive", note: "Import from your drive (mock)" },
+                                    { name: "Dropbox", note: "Import folders and files (mock)" },
+                                    { name: "Loom", note: "Pull recordings (mock)" },
+                                    { name: "TikTok", note: "Import source clips (mock)" },
+                                ].map((c) => (
+                                    <div
+                                        key={c.name}
+                                        className="rounded-xl border border-white/10 bg-white/[0.03] p-4"
+                                    >
+                                        <div className="text-sm font-medium text-white/85">{c.name}</div>
+                                        <div className="mt-1 text-xs text-white/45">{c.note}</div>
+                                        <div className="mt-3">
+                                            <Button
+                                                variant="outline"
+                                                className="w-full"
+                                                onClick={() => addSourceChip(`${c.name} connected`)}
+                                            >
+                                                Connect (Mock)
+                                            </Button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </TabsContent>
+
+                            <TabsContent value="brand" className="space-y-3">
+                                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+                                    <div className="text-sm font-medium text-white/85">Brand Kit</div>
+                                    <div className="mt-1 text-xs text-white/45">
+                                        Fonts, colors, watermark and safe margins (mock).
+                                    </div>
+                                    <div className="mt-3 flex items-center gap-2">
+                                        <Button
+                                            className="bg-white text-[#0A0A0B] hover:bg-white/90"
+                                            onClick={() => addSourceChip("Brand kit loaded")}
+                                        >
+                                            Load Brand Kit
+                                        </Button>
+                                        <Button
+                                            variant="outline"
+                                            onClick={() => addSourceChip("Watermark enabled")}
+                                        >
+                                            Enable watermark
+                                        </Button>
+                                    </div>
+                                </div>
+                            </TabsContent>
+
+                            <TabsContent value="refs" className="space-y-3">
+                                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+                                    <div className="text-sm font-medium text-white/85">Reference</div>
+                                    <div className="mt-1 text-xs text-white/45">
+                                        Use your local inspiration video for interaction patterns only (no asset copying).
+                                    </div>
+                                    <div className="mt-3 flex items-center gap-2">
+                                        <Button
+                                            variant="outline"
+                                            onClick={() => addSourceChip("Reference notes added")}
+                                        >
+                                            Add reference note
+                                        </Button>
+                                    </div>
+                                </div>
+                            </TabsContent>
+                        </Tabs>
+                    </div>
+                </DialogContent>
+            </Dialog>
+
+            {/* TEMPLATES + STYLES */}
+            <Sheet open={templatesOpen} onOpenChange={setTemplatesOpen}>
+                <SheetContent side="right" className="p-0 flex flex-col overflow-hidden">
+                    <SheetHeader className="px-6 pt-6">
+                        <SheetTitle>Templates and Styles</SheetTitle>
+                        <SheetDescription>
+                            Select one active style. Saved in localStorage.
+                        </SheetDescription>
+                        {process.env.NODE_ENV === "development" && (
+                            <div className="mt-1 text-[11px] leading-tight text-white/45">
+                                Airtable previews loaded: {Object.keys(airtableStylePreviews).length} styles
+                                {Object.keys(airtableStylePreviews).length === 0 && (
+                                    <span className="ml-2 text-white/35">
+                                        No Airtable previews matched. Check styleKey mapping.
+                                    </span>
+                                )}
                             </div>
-                        </motion.div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
+                        )}
+                    </SheetHeader>
+                    <div className="flex-1 overflow-y-auto overscroll-contain px-6 pb-6 pt-4 space-y-4">
+                        <div className="grid gap-3">
+                            {STYLE_TEMPLATES.map((template) => {
+                                const selected = template.id === activeStyleId;
+
+                                const norm = (s: string) =>
+                                    s
+                                        .toLowerCase()
+                                        .trim()
+                                        .replace(/[^a-z0-9]+/g, "-")
+                                        .replace(/(^-|-$)/g, "");
+
+                                const candidates = [
+                                    template.id,
+                                    template.name,
+                                    template.id.replace(/^style_/, ""),
+                                ].map(norm);
+
+                                const matchedKey = candidates.find((k) => !!airtableStylePreviews[k]);
+
+                                const previewImages = matchedKey
+                                    ? airtableStylePreviews[matchedKey]
+                                    : template.previewImages;
+                                const hasPreviews = previewImages.length > 0;
+                                const source =
+                                    matchedKey && airtableStylePreviews[matchedKey]?.length > 0
+                                        ? "airtable"
+                                        : "fallback";
+                                return (
+                                    <button
+                                        key={template.id}
+                                        onClick={() => {
+                                            setActiveStyleId(template.id);
+                                            persistActiveStyleId(template.id);
+                                            setTemplatesOpen(false);
+                                        }}
+                                        className={cn(
+                                            "w-full text-left rounded-xl border p-4 transition-colors transition-shadow",
+                                            selected
+                                                ? "border-purple-400/30 bg-purple-500/10 shadow-[0_0_0_1px_rgba(168,85,247,0.16)]"
+                                                : "border-white/10 bg-white/[0.02] hover:bg-white/[0.05] hover:border-purple-400/30 hover:shadow-[0_0_0_1px_rgba(168,85,247,0.12)]"
+                                        )}
+                                    >
+                                        <div className="flex gap-3">
+                                            <div className="hidden sm:grid grid-cols-3 gap-2">
+                                                {hasPreviews ? (
+                                                    previewImages.slice(0, 3).map((src) => (
+                                                        <div
+                                                            key={src}
+                                                            className="relative h-16 w-24 overflow-hidden rounded-lg border border-white/10"
+                                                        >
+                                                            {failedImages[src] ? (
+                                                                <div className="flex h-full w-full items-center justify-center bg-white/[0.03] text-white/40">
+                                                                    <ImageIcon className="h-4 w-4" />
+                                                                </div>
+                                                            ) : (
+                                                                <Image
+                                                                    src={src}
+                                                                    alt=""
+                                                                    fill
+                                                                    className="object-cover"
+                                                                    sizes="96px"
+                                                                    unoptimized
+                                                                    onError={() =>
+                                                                        setFailedImages((m) => ({ ...m, [src]: true }))
+                                                                    }
+                                                                />
+                                                            )}
+                                                        </div>
+                                                    ))
+                                                ) : (
+                                                    <div className="flex h-16 w-24 items-center justify-center overflow-hidden rounded-lg border border-white/10 bg-white/[0.03] text-white/40">
+                                                        <ImageIcon className="h-4 w-4" />
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <div className="sm:hidden relative h-24 w-full overflow-hidden rounded-lg border border-white/10">
+                                                {hasPreviews ? (
+                                                    failedImages[previewImages[0]] ? (
+                                                        <div className="flex h-full w-full items-center justify-center bg-white/[0.03] text-white/40">
+                                                            <ImageIcon className="h-5 w-5" />
+                                                        </div>
+                                                    ) : (
+                                                        <Image
+                                                            src={previewImages[0]}
+                                                            alt=""
+                                                            fill
+                                                            className="object-cover"
+                                                            sizes="100vw"
+                                                            unoptimized
+                                                            onError={() =>
+                                                                setFailedImages((m) => ({
+                                                                    ...m,
+                                                                    [previewImages[0]]: true,
+                                                                }))
+                                                            }
+                                                        />
+                                                    )
+                                                ) : (
+                                                    <div className="flex h-full w-full items-center justify-center bg-white/[0.03] text-white/40">
+                                                        <ImageIcon className="h-5 w-5" />
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            <div className="flex-1">
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <div className="text-sm font-semibold text-white/90">{template.name}</div>
+                                                    <div className="flex items-center gap-2">
+                                                        {process.env.NODE_ENV === "development" && (
+                                                            <Badge
+                                                                variant="secondary"
+                                                                className="text-[10px] px-2 py-0.5"
+                                                            >
+                                                                {source === "airtable" ? "Airtable" : "Local"}
+                                                            </Badge>
+                                                        )}
+                                                        {selected ? <Badge variant="success">Active</Badge> : <Badge variant="secondary">Style</Badge>}
+                                                    </div>
+                                                </div>
+                                                <div className="mt-1 text-xs text-white/45">{template.description}</div>
+                                                <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                                                    {template.tags.map((tag) => (
+                                                        <Badge key={tag} variant="secondary">{tag}</Badge>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </SheetContent>
+            </Sheet>
         </div>
     );
 }

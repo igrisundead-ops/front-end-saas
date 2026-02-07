@@ -1,12 +1,14 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  typescript: {
-    ignoreBuildErrors: true,
-  },
   images: {
     unoptimized: true,
+    remotePatterns: [
+      { protocol: 'https', hostname: 'dl.airtable.com' },
+      { protocol: 'https', hostname: 'airtableusercontent.com' },
+      { protocol: 'https', hostname: 'v4.airtableusercontent.com' },
+      { protocol: 'https', hostname: 'v5.airtableusercontent.com' },
+    ],
   },
- 
-}
+};
 
-export default nextConfig
+export default nextConfig;

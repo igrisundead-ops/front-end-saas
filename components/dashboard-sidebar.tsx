@@ -1,13 +1,30 @@
 'use client'
 
+import type React from 'react'
 import { useState } from 'react'
-import { ChevronDown } from 'lucide-react'
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
+import {
+  BadgeDollarSign,
+  ChevronDown,
+  Film,
+  FolderKanban,
+  LayoutDashboard,
+  LibraryBig,
+  Settings,
+  Sparkles,
+  Subtitles,
+  Users,
+  Wand2,
+} from 'lucide-react'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 
 interface MenuItem {
   label: string
-  icon?: string
+  href: string
+  icon: React.ComponentType<{ className?: string }>
 }
 
 interface MenuSection {
@@ -17,57 +34,48 @@ interface MenuSection {
 
 const menuSections: MenuSection[] = [
   {
-    title: 'Dashboard',
+    title: 'Workspace',
     items: [
-      { label: 'Overview' },
-      { label: 'Analytics' },
-      { label: 'Reports' },
+      { label: 'Overview', href: '/', icon: LayoutDashboard },
+      { label: 'Projects', href: '/projects', icon: FolderKanban },
+      { label: 'Editor', href: '/editor', icon: Wand2 },
+      { label: 'Exports', href: '/exports', icon: Film },
     ],
   },
   {
-    title: 'Upload Project',
+    title: 'Intelligence',
     items: [
-      { label: 'New Project' },
-      { label: 'Import' },
-      { label: 'Browse' },
+      { label: 'Captions Studio', href: '/captions', icon: Subtitles },
+      { label: 'Auto Highlights', href: '/highlights', icon: Sparkles },
+      { label: 'B-roll Finder', href: '/broll', icon: Film },
     ],
   },
   {
-    title: 'Machine Learning',
+    title: 'Library',
     items: [
-      { label: 'Models' },
-      { label: 'Training' },
-      { label: 'Datasets' },
+      { label: 'Templates', href: '/templates', icon: LibraryBig },
+      { label: 'Assets', href: '/assets', icon: LibraryBig },
+      { label: 'Brand Kit', href: '/brand-kit', icon: Wand2 },
     ],
   },
   {
-    title: 'AI Editors',
+    title: 'Business',
     items: [
-      { label: 'Code Editor' },
-      { label: 'Visual Editor' },
-      { label: 'Templates' },
-    ],
-  },
-  {
-    title: 'Plugin',
-    items: [
-      { label: 'Extensions' },
-      { label: 'Marketplace' },
-      { label: 'My Plugins' },
-    ],
-  },
-  {
-    title: 'Human Editor',
-    items: [
-      { label: 'Team' },
-      { label: 'Collaborators' },
-      { label: 'Reviews' },
+      { label: 'Usage & Billing', href: '/billing', icon: BadgeDollarSign },
+      { label: 'Team', href: '/team', icon: Users },
+      { label: 'Settings', href: '/settings', icon: Settings },
     ],
   },
 ]
 
 export function DashboardSidebar() {
-  const [expandedSections, setExpandedSections] = useState<string[]>(['Dashboard'])
+  const pathname = usePathname()
+  const [expandedSections, setExpandedSections] = useState<string[]>([
+    'Workspace',
+    'Intelligence',
+    'Library',
+    'Business',
+  ])
 
   const toggleSection = (title: string) => {
     setExpandedSections((prev) =>
@@ -77,17 +85,25 @@ export function DashboardSidebar() {
     )
   }
 
+  const isActive = (href: string) => {
+    if (href === '/') return pathname === '/'
+    return pathname === href || pathname.startsWith(`${href}/`)
+  }
+
   return (
     <aside className="w-64 bg-black/40 backdrop-blur-md border-r border-purple-500/20 flex flex-col h-screen">
       {/* Sidebar Header */}
       <div className="p-6 border-b border-purple-500/10">
         <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
-          Build Systems
+          PROMETHEUS
         </h2>
+        <p className="mt-2 text-xs text-gray-400/80">
+          Iman-grade edits, structured.
+        </p>
       </div>
 
       {/* Menu Items */}
-      <nav className="flex-1 overflow-y-auto p-4 space-y-2">
+      <nav className="flex-1 overflow-hidden p-4 space-y-2">
         {menuSections.map((section) => (
           <Collapsible
             key={section.title}
@@ -108,9 +124,18 @@ export function DashboardSidebar() {
                 <Button
                   key={item.label}
                   variant="ghost"
-                  className="w-full justify-start px-4 py-1.5 text-xs text-gray-400 hover:text-gray-200 hover:bg-purple-500/5 rounded-md transition-colors"
+                  asChild
+                  className={cn(
+                    'w-full justify-start px-4 py-1.5 text-xs rounded-md transition-colors',
+                    isActive(item.href)
+                      ? 'text-white bg-purple-500/10 hover:bg-purple-500/15'
+                      : 'text-gray-400 hover:text-gray-200 hover:bg-purple-500/5',
+                  )}
                 >
-                  {item.label}
+                  <Link href={item.href} className="flex items-center gap-2">
+                    <item.icon className="h-3.5 w-3.5 opacity-80" />
+                    <span>{item.label}</span>
+                  </Link>
                 </Button>
               ))}
             </CollapsibleContent>
@@ -122,9 +147,10 @@ export function DashboardSidebar() {
       <div className="p-4 border-t border-purple-500/10">
         <Button
           variant="outline"
-          className="w-full text-xs text-purple-400 hover:text-purple-300 hover:border-purple-400 bg-transparent"
+          asChild
+          className="w-full text-xs text-purple-300 hover:text-purple-200 hover:border-purple-300 bg-transparent border-purple-500/30"
         >
-          Settings
+          <Link href="/billing">Upgrade</Link>
         </Button>
       </div>
     </aside>

@@ -1,0 +1,1151 @@
+﻿diff --git a/components/video-upload-interface.tsx b/components/video-upload-interface.tsx
+index 26ccb17..e96a952 100644
+--- a/components/video-upload-interface.tsx
++++ b/components/video-upload-interface.tsx
+@@ -1,9 +1,10 @@
+ "use client";
+ 
+-import { useEffect, useRef, useCallback, useTransition } from "react";
+-import { useState } from "react";
+-import { cn } from "@/lib/utils";
+-import {
++import { useEffect, useRef, useCallback, useTransition } from "react";
++import { useState } from "react";
++import { useRouter } from "next/navigation";
++import { cn } from "@/lib/utils";
++import {
+     Video,
+     Upload,
+     FileUp,
+@@ -15,17 +16,26 @@ import {
+     PlusIcon,
+     SendIcon,
+     XIcon,
+-    LoaderIcon,
+-    Sparkles,
+-    Command,
+-    ImageIcon, // Added import for ImageIcon
+-    Link as LinkIcon
+-} from "lucide-react";
+-import { motion, AnimatePresence } from "framer-motion";
+-import * as React from "react";
+-import { FileUpload } from "@/components/ui/file-upload";
+-import { CardStack, type CardStackItem } from "@/components/ui/card-stack";
+-import { ChatInput, ChatInputTextArea, ChatInputSubmit } from "@/components/ui/chat-input";
++    LoaderIcon,
++    Sparkles,
++    Command,
++    Grid3X3,
++    ImageIcon, // Added import for ImageIcon
++    Link as LinkIcon
++} from "lucide-react";
++import { motion, AnimatePresence } from "framer-motion";
++import * as React from "react";
++import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
++import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
++import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
++import { Input } from "@/components/ui/input";
++import { Button } from "@/components/ui/button";
++import { Badge } from "@/components/ui/badge";
++import { SendPopup } from "@/components/ui/send-popup";
++import { FileUpload } from "@/components/ui/file-upload";
++import { TEMPLATE_STYLES } from "@/lib/mock/styles";
++import { createProcessingJob, createProject, getActiveStyleId, getJobStatus, startProcessing as persistStartProcessing, setActiveStyleId as persistActiveStyleId } from "@/lib/mock";
++import type { ProcessingJob } from "@/lib/types";
+ 
+ interface UseAutoResizeTextareaProps {
+     minHeight: number;
+@@ -85,11 +95,22 @@ interface CommandSuggestion {
+     prefix: string;
+ }
+ 
+-interface TextareaProps
+-  extends React.TextareaHTMLAttributes<HTMLTextAreaElement> {
+-  containerClassName?: string;
+-  showRing?: boolean;
+-}
++interface TextareaProps
++  extends React.TextareaHTMLAttributes<HTMLTextAreaElement> {
++  containerClassName?: string;
++  showRing?: boolean;
++}
++
++type SlashCommandKey = "clone" | "improve";
++const SLASH_COMMANDS = {
++    clone: { label: "Clone Editing Style", raw: "/clone" },
++    improve: { label: "Improve", raw: "/improve" },
++} as const;
++type ActiveSlashCommand = {
++    key: SlashCommandKey;
++    label: (typeof SLASH_COMMANDS)[SlashCommandKey]["label"];
++    raw: (typeof SLASH_COMMANDS)[SlashCommandKey]["raw"];
++};
+ 
+ const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
+   ({ className, containerClassName, showRing = true, ...props }, ref) => {
+@@ -140,49 +161,44 @@ const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
+ )
+ Textarea.displayName = "Textarea"
+ 
+-export function VideoUploadInterface() {
+-    const [value, setValue] = useState("");
+-    const [showCommandPalette, setShowCommandPalette] = useState(false);
+-    const [showFileUploadModal, setShowFileUploadModal] = useState(false);
+-    const [showProcessingModal, setShowProcessingModal] = useState(false);
+-    const [uploadedFileName, setUploadedFileName] = useState<string>("");
+-    const [uploadedVideoUrl, setUploadedVideoUrl] = useState<string>("");
+-    const [processingSteps, setProcessingSteps] = useState<Array<{id: number; title: string; status: 'pending' | 'processing' | 'complete'}>>(
+-        [
+-            { id: 1, title: 'Video Analysis', status: 'pending' },
+-            { id: 2, title: 'Scene Detection', status: 'pending' },
+-            { id: 3, title: 'Audio Processing', status: 'pending' },
+-            { id: 4, title: 'AI Enhancement', status: 'pending' }
+-        ]
+-    );
+-    const [currentStep, setCurrentStep] = useState(0);
+-    const [chatValue, setChatValue] = useState("");
+-    const [chatLoading, setChatLoading] = useState(false);
+-
+-    const handleChatSubmit = () => {
+-        setChatLoading(true);
+-        setTimeout(() => {
+-            console.log("Chat message:", chatValue);
+-            setChatValue("");
+-            setChatLoading(false);
+-        }, 1000);
+-    };
+-    const [recentCommand, setRecentCommand] = useState<string | null>(null);
++export function VideoUploadInterface() {
++    const router = useRouter();
++    const [value, setValue] = useState("");
++    const [showCommandPalette, setShowCommandPalette] = useState(false);
++    const [showFileUploadModal, setShowFileUploadModal] = useState(false);
++    const [uploadedFileName, setUploadedFileName] = useState<string>("");
++    const [uploadedVideoUrl, setUploadedVideoUrl] = useState<string>("");
++    const [recentCommand, setRecentCommand] = useState<string | null>(null);
+     const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
+     const { textareaRef, adjustHeight } = useAutoResizeTextarea({
+         minHeight: 60,
+         maxHeight: 200,
+     });
+     const [inputFocused, setInputFocused] = useState(false);
+-    const commandPaletteRef = useRef<HTMLDivElement>(null);
+-    const [activeSuggestion, setActiveSuggestion] = useState(-1);
+-    const [attachments, setAttachments] = useState<string[]>([]);
+-    const [isTyping, setIsTyping] = useState(false);
+-    const [startTransition] = useTransition();
+-
+-    const commandSuggestions: CommandSuggestion[] = [
+-        { 
+-            icon: <ImageIcon className="w-4 h-4" />, 
++    const commandPaletteRef = useRef<HTMLDivElement>(null);
++    const [activeSuggestion, setActiveSuggestion] = useState(-1);
++    const [attachments, setAttachments] = useState<string[]>([]);
++    const [isTyping, setIsTyping] = useState(false);
++    const [, startTransition] = useTransition();
++
++    const [templatesOpen, setTemplatesOpen] = useState(false);
++    const [activeStyleId, setActiveStyleId] = useState<string | null>(null);
++    const [projectId, setProjectId] = useState<string | null>(null);
++    const [job, setJob] = useState<ProcessingJob | null>(null);
++    const [sendOpen, setSendOpen] = useState(false);
++
++    const [sourceProvider, setSourceProvider] = useState("YouTube");
++    const [sourceUrl, setSourceUrl] = useState("");
++    const [activeSlashCommand, setActiveSlashCommand] = useState<ActiveSlashCommand | null>(null);
++
++    const activeStyle = React.useMemo(
++        () => TEMPLATE_STYLES.find((s) => s.id === activeStyleId) ?? null,
++        [activeStyleId]
++    );
++
++    const commandSuggestions: CommandSuggestion[] = [
++        { 
++            icon: <ImageIcon className="w-4 h-4" />, 
+             label: "Clone Editing Style", 
+             description: "Generate a UI from a screenshot", 
+             prefix: "/clone" 
+@@ -195,12 +211,17 @@ export function VideoUploadInterface() {
+         },
+     ];
+ 
+-    useEffect(() => {
+-        if (value.startsWith('/') && !value.includes(' ')) {
+-            setShowCommandPalette(true);
+-            
+-            const matchingSuggestionIndex = commandSuggestions.findIndex(
+-                (cmd) => cmd.prefix.startsWith(value)
++    useEffect(() => {
++        if (activeSlashCommand) {
++            setShowCommandPalette(false);
++            return;
++        }
++
++        if (value.startsWith('/') && !value.includes(' ')) {
++            setShowCommandPalette(true);
++            
++            const matchingSuggestionIndex = commandSuggestions.findIndex(
++                (cmd) => cmd.prefix.startsWith(value)
+             );
+             
+             if (matchingSuggestionIndex >= 0) {
+@@ -208,25 +229,52 @@ export function VideoUploadInterface() {
+             } else {
+                 setActiveSuggestion(-1);
+             }
+-        } else {
+-            setShowCommandPalette(false);
+-        }
+-    }, [value]);
+-
+-    useEffect(() => {
+-        const handleMouseMove = (e: MouseEvent) => {
+-            setMousePosition({ x: e.clientX, y: e.clientY });
+-        };
++        } else {
++            setShowCommandPalette(false);
++        }
++    }, [activeSlashCommand, value]);
++
++    useEffect(() => {
++        if (activeSlashCommand) return;
++        const match = value.match(/^\/(clone|improve)\s+/);
++        if (!match) return;
++        const key = match[1] as SlashCommandKey;
++        setActiveSlashCommand({
++            key,
++            label: SLASH_COMMANDS[key].label,
++            raw: SLASH_COMMANDS[key].raw,
++        });
++        setValue(value.replace(/^\/(clone|improve)\s+/, ""));
++        adjustHeight(true);
++    }, [activeSlashCommand, adjustHeight, value]);
++
++    useEffect(() => {
++        const handleMouseMove = (e: MouseEvent) => {
++            setMousePosition({ x: e.clientX, y: e.clientY });
++        };
+ 
+         window.addEventListener('mousemove', handleMouseMove);
+         return () => {
+             window.removeEventListener('mousemove', handleMouseMove);
+-        };
+-    }, []);
+-
+-    useEffect(() => {
+-        const handleClickOutside = (event: MouseEvent) => {
+-            const target = event.target as Node;
++        };
++    }, []);
++
++    useEffect(() => {
++        const id = getActiveStyleId();
++        setActiveStyleId(id && id.length > 0 ? id : null);
++    }, []);
++
++    useEffect(() => {
++        if (!projectId) return;
++        const tick = () => setJob(getJobStatus(projectId));
++        tick();
++        const t = window.setInterval(tick, 200);
++        return () => window.clearInterval(t);
++    }, [projectId]);
++
++    useEffect(() => {
++        const handleClickOutside = (event: MouseEvent) => {
++            const target = event.target as Node;
+             const commandButton = document.querySelector('[data-command-button]');
+             
+             if (commandPaletteRef.current && 
+@@ -242,61 +290,111 @@ export function VideoUploadInterface() {
+         };
+     }, []);
+ 
+-    const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+-        if (showCommandPalette) {
+-            if (e.key === 'ArrowDown') {
+-                e.preventDefault();
+-                setActiveSuggestion(prev => 
+-                    prev < commandSuggestions.length - 1 ? prev + 1 : 0
+-                );
+-            } else if (e.key === 'ArrowUp') {
+-                e.preventDefault();
+-                setActiveSuggestion(prev => 
+-                    prev > 0 ? prev - 1 : commandSuggestions.length - 1
+-                );
+-            } else if (e.key === 'Tab' || e.key === 'Enter') {
+-                e.preventDefault();
+-                if (activeSuggestion >= 0) {
+-                    const selectedCommand = commandSuggestions[activeSuggestion];
+-                    setValue(selectedCommand.prefix + ' ');
+-                    setShowCommandPalette(false);
+-                    
+-                    setRecentCommand(selectedCommand.label);
+-                    setTimeout(() => setRecentCommand(null), 3500);
+-                }
+-            } else if (e.key === 'Escape') {
+-                e.preventDefault();
+-                setShowCommandPalette(false);
+-            }
+-        } else if (e.key === "Enter" && !e.shiftKey) {
+-            e.preventDefault();
+-            if (value.trim()) {
+-                handleSendMessage();
+-            }
+-        }
+-    };
+-
+-    const handleSendMessage = () => {
+-        if (value.trim()) {
+-            startTransition(() => {
+-                setIsTyping(true);
+-                setTimeout(() => {
+-                    setIsTyping(false);
+-                    setValue("");
+-                    adjustHeight(true);
+-                }, 3000);
+-            });
+-        }
+-    };
+-
+-    const handleAttachFile = () => {
+-        const mockFileName = `file-${Math.floor(Math.random() * 1000)}.mp4`;
+-        setAttachments(prev => [...prev, mockFileName]);
+-    };
+-
+-    const removeAttachment = (index: number) => {
+-        setAttachments(prev => prev.filter((_, i) => i !== index));
+-    };
++    const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
++        if (activeSlashCommand && e.key === "Backspace") {
++            const el = textareaRef.current;
++            if (el && el.selectionStart === 0 && el.selectionEnd === 0) {
++                e.preventDefault();
++                setActiveSlashCommand(null);
++                return;
++            }
++        }
++
++        if (showCommandPalette) {
++            if (e.key === 'ArrowDown') {
++                e.preventDefault();
++                setActiveSuggestion(prev => 
++                    prev < commandSuggestions.length - 1 ? prev + 1 : 0
++                );
++            } else if (e.key === 'ArrowUp') {
++                e.preventDefault();
++                setActiveSuggestion(prev => 
++                    prev > 0 ? prev - 1 : commandSuggestions.length - 1
++                );
++            } else if (e.key === 'Tab' || e.key === 'Enter') {
++                e.preventDefault();
++                if (activeSuggestion >= 0) {
++                    const selectedCommand = commandSuggestions[activeSuggestion];
++                    setValue(selectedCommand.prefix + ' ');
++                    setShowCommandPalette(false);
++                    
++                    setRecentCommand(selectedCommand.label);
++                    setTimeout(() => setRecentCommand(null), 3500);
++                }
++            } else if (e.key === 'Escape') {
++                e.preventDefault();
++                setShowCommandPalette(false);
++            }
++        } else if (e.key === "Enter" && !e.shiftKey) {
++            e.preventDefault();
++            const trimmed = value.trim();
++            if (!activeSlashCommand && (trimmed === "/clone" || trimmed === "/improve")) {
++                const key = trimmed.slice(1) as SlashCommandKey;
++                setActiveSlashCommand({ key, label: SLASH_COMMANDS[key].label, raw: SLASH_COMMANDS[key].raw });
++                setValue("");
++                adjustHeight(true);
++                return;
++            }
++
++            if (trimmed || activeSlashCommand) {
++                handleSendMessage();
++            }
++        }
++    };
++
++    const handleSendMessage = () => {
++        const message = value.trim();
++        const prompt = activeSlashCommand
++            ? `${activeSlashCommand.raw}${message ? ` ${message}` : ""}`
++            : message;
++        if (!prompt) return;
++        if (job?.status === "running") {
++            setSendOpen(true);
++            return;
++        }
++
++        startTransition(() => {
++            setIsTyping(true);
++
++            const titleBase =
++                uploadedFileName?.trim().length > 0
++                    ? uploadedFileName.replace(/\.[^/.]+$/, "")
++                    : (message || activeSlashCommand?.label || prompt).slice(0, 28);
++
++            const project = createProject({ title: titleBase || "PROMETHEUS Project" });
++            setProjectId(project.id);
++
++            const nextJob = createProcessingJob({
++                projectId: project.id,
++                input: {
++                    prompt,
++                    sources: attachments,
++                    styleId: activeStyleId ?? undefined,
++                },
++            });
++            persistStartProcessing(nextJob);
++            setJob(nextJob);
++            setSendOpen(true);
++            setActiveSlashCommand(null);
++
++            window.setTimeout(() => setIsTyping(false), 650);
++        });
++    };
++
++    const handleAttachFile = () => {
++        const mockFileName = `file-${Math.floor(Math.random() * 1000)}.mp4`;
++        setAttachments(prev => (prev.includes(mockFileName) ? prev : [mockFileName, ...prev]));
++    };
++
++    const addSourceChip = (label: string) => {
++        const trimmed = label.trim();
++        if (!trimmed) return;
++        setAttachments((prev) => (prev.includes(trimmed) ? prev : [trimmed, ...prev]));
++    };
++
++    const removeAttachment = (index: number) => {
++        setAttachments(prev => prev.filter((_, i) => i !== index));
++    };
+     
+     const selectCommandSuggestion = (index: number) => {
+         const selectedCommand = commandSuggestions[index];
+@@ -393,48 +491,99 @@ export function VideoUploadInterface() {
+                             )}
+                         </AnimatePresence>
+ 
+-                        <div className="p-4">
+-                            <Textarea
+-                                ref={textareaRef}
+-                                value={value}
+-                                onChange={(e) => {
+-                                    setValue(e.target.value);
+-                                    adjustHeight();
+-                                }}
+-                                onKeyDown={handleKeyDown}
+-                                onFocus={() => setInputFocused(true)}
+-                                onBlur={() => setInputFocused(false)}
+-                                placeholder="Describe your video or add notes..."
+-                                containerClassName="w-full"
+-                                className={cn(
+-                                    "w-full px-4 py-3",
+-                                    "resize-none",
+-                                    "bg-transparent",
+-                                    "border-none",
+-                                    "text-white/90 text-sm",
+-                                    "focus:outline-none",
+-                                    "placeholder:text-white/20",
+-                                    "min-h-[60px]"
+-                                )}
+-                                style={{
+-                                    overflow: "hidden",
+-                                }}
+-                                showRing={false}
+-                            />
+-                        </div>
+-
+-                        <AnimatePresence>
+-                            {attachments.length > 0 && (
+-                                <motion.div 
+-                                    className="px-4 pb-3 flex gap-2 flex-wrap"
+-                                    initial={{ opacity: 0, height: 0 }}
+-                                    animate={{ opacity: 1, height: "auto" }}
+-                                    exit={{ opacity: 0, height: 0 }}
+-                                >
+-                                    {attachments.map((file, index) => (
+-                                        <motion.div
+-                                            key={index}
+-                                            className="flex items-center gap-2 text-xs bg-white/[0.03] py-1.5 px-3 rounded-lg text-white/70"
++                        <div className="p-4 space-y-3">
++                            <AnimatePresence>
++                                {activeSlashCommand && (
++                                    <motion.div
++                                        initial={{ opacity: 0, y: 6, scale: 0.98 }}
++                                        animate={{ opacity: 1, y: 0, scale: 1 }}
++                                        exit={{ opacity: 0, y: 6, scale: 0.98 }}
++                                        transition={{ duration: 0.18, ease: "easeOut" }}
++                                        className="flex items-center justify-between gap-3 rounded-xl border border-purple-400/20 bg-purple-500/10 px-3 py-2"
++                                    >
++                                        <div className="flex items-center gap-2 min-w-0">
++                                            <Sparkles className="w-4 h-4 text-purple-200/90" />
++                                            <div className="min-w-0">
++                                                <div className="text-xs font-medium text-white/90 truncate">
++                                                    {activeSlashCommand.label}
++                                                </div>
++                                                <div className="text-[11px] text-white/45 truncate">
++                                                    {activeSlashCommand.raw}
++                                                </div>
++                                            </div>
++                                        </div>
++                                        <button
++                                            type="button"
++                                            onClick={() => setActiveSlashCommand(null)}
++                                            className="p-1 rounded-lg hover:bg-white/10 text-white/50 hover:text-white/80 transition-colors"
++                                            aria-label="Remove command"
++                                        >
++                                            <XIcon className="w-4 h-4" />
++                                        </button>
++                                    </motion.div>
++                                )}
++                            </AnimatePresence>
++                            <Textarea
++                                ref={textareaRef}
++                                value={value}
++                                onChange={(e) => {
++                                    setValue(e.target.value);
++                                    adjustHeight();
++                                }}
++                                onKeyDown={handleKeyDown}
++                                onFocus={() => setInputFocused(true)}
++                                onBlur={() => setInputFocused(false)}
++                                placeholder="Describe your video or add notes..."
++                                containerClassName="w-full"
++                                className={cn(
++                                    "w-full px-4 py-3",
++                                    "resize-none",
++                                    "bg-transparent",
++                                    "border-none",
++                                    "text-white/90 text-sm",
++                                    "focus:outline-none",
++                                    "placeholder:text-white/20",
++                                    "min-h-[60px]"
++                                )}
++                                style={{
++                                    overflow: "hidden",
++                                }}
++                                showRing={false}
++                            />
++                        </div>
++
++                        <AnimatePresence>
++                            {(attachments.length > 0 || !!activeStyle) && (
++                                <motion.div 
++                                    className="px-4 pb-3 flex gap-2 flex-wrap"
++                                    initial={{ opacity: 0, height: 0 }}
++                                    animate={{ opacity: 1, height: "auto" }}
++                                    exit={{ opacity: 0, height: 0 }}
++                                >
++                                    {activeStyle && (
++                                        <motion.div
++                                            className="flex items-center gap-2 text-xs bg-purple-500/10 border border-purple-400/20 py-1.5 px-3 rounded-lg text-white/80"
++                                            initial={{ opacity: 0, scale: 0.9 }}
++                                            animate={{ opacity: 1, scale: 1 }}
++                                            exit={{ opacity: 0, scale: 0.9 }}
++                                        >
++                                            <span>Style: {activeStyle.name}</span>
++                                            <button
++                                                onClick={() => {
++                                                    setActiveStyleId(null);
++                                                    persistActiveStyleId(null);
++                                                }}
++                                                className="text-white/40 hover:text-white transition-colors"
++                                                aria-label="Clear style"
++                                            >
++                                                <XIcon className="w-3 h-3" />
++                                            </button>
++                                        </motion.div>
++                                    )}
++                                    {attachments.map((file, index) => (
++                                        <motion.div
++                                            key={index}
++                                            className="flex items-center gap-2 text-xs bg-white/[0.03] py-1.5 px-3 rounded-lg text-white/70"
+                                             initial={{ opacity: 0, scale: 0.9 }}
+                                             animate={{ opacity: 1, scale: 1 }}
+                                             exit={{ opacity: 0, scale: 0.9 }}
+@@ -452,26 +601,42 @@ export function VideoUploadInterface() {
+                             )}
+                         </AnimatePresence>
+ 
+-                        <div className="p-4 border-t border-white/[0.05] flex items-center justify-between gap-4">
+-                            <div className="flex items-center gap-3">
+-                                <motion.button
+-                                    type="button"
+-                                    onClick={() => setShowFileUploadModal(true)}
+-                                    whileTap={{ scale: 0.94 }}
+-                                    className="p-2 text-white/40 hover:text-white/90 rounded-lg transition-colors relative group"
+-                                    title="Upload files"
+-                                >
+-                                    <LinkIcon className="w-4 h-4" />
+-                                    <motion.span
+-                                        className="absolute inset-0 bg-white/[0.05] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
+-                                        layoutId="button-highlight"
+-                                    />
+-                                </motion.button>
+-                                <motion.button
+-                                    type="button"
+-                                    data-command-button
+-                                    onClick={(e) => {
+-                                        e.stopPropagation();
++                        <div className="p-4 border-t border-white/[0.05] flex items-center justify-between gap-4">
++                            <div className="flex items-center gap-3">
++                                <motion.button
++                                    type="button"
++                                    onClick={() => setShowFileUploadModal(true)}
++                                    whileTap={{ scale: 0.94 }}
++                                    className="p-2 text-white/40 hover:text-white/90 rounded-lg transition-colors relative group"
++                                    title="Add source"
++                                >
++                                    <LinkIcon className="w-4 h-4" />
++                                    <motion.span
++                                        className="absolute inset-0 bg-white/[0.05] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
++                                        layoutId="button-highlight"
++                                    />
++                                </motion.button>
++                                <motion.button
++                                    type="button"
++                                    onClick={() => setTemplatesOpen(true)}
++                                    whileTap={{ scale: 0.94 }}
++                                    className={cn(
++                                        "p-2 text-white/40 hover:text-white/90 rounded-lg transition-colors relative group",
++                                        templatesOpen && "bg-white/10 text-white/90"
++                                    )}
++                                    title="Templates and styles"
++                                >
++                                    <Grid3X3 className="w-4 h-4" />
++                                    <motion.span
++                                        className="absolute inset-0 bg-white/[0.05] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
++                                        layoutId="button-highlight"
++                                    />
++                                </motion.button>
++                                <motion.button
++                                    type="button"
++                                    data-command-button
++                                    onClick={(e) => {
++                                        e.stopPropagation();
+                                         setShowCommandPalette(prev => !prev);
+                                     }}
+                                     whileTap={{ scale: 0.94 }}
+@@ -488,20 +653,20 @@ export function VideoUploadInterface() {
+                                 </motion.button>
+                             </div>
+                             
+-                            <motion.button
+-                                type="button"
+-                                onClick={handleSendMessage}
+-                                whileHover={{ scale: 1.01 }}
+-                                whileTap={{ scale: 0.98 }}
+-                                disabled={isTyping || !value.trim()}
+-                                className={cn(
+-                                    "px-4 py-2 rounded-lg text-sm font-medium transition-all",
+-                                    "flex items-center gap-2",
+-                                    value.trim()
+-                                        ? "bg-white text-[#0A0A0B] shadow-lg shadow-white/10"
+-                                        : "bg-white/[0.05] text-white/40"
+-                                )}
+-                            >
++                            <motion.button
++                                type="button"
++                                onClick={handleSendMessage}
++                                whileHover={{ scale: 1.01 }}
++                                whileTap={{ scale: 0.98 }}
++                                disabled={isTyping || (!value.trim() && !activeSlashCommand)}
++                                className={cn(
++                                    "px-4 py-2 rounded-lg text-sm font-medium transition-all",
++                                    "flex items-center gap-2",
++                                    (value.trim() || activeSlashCommand)
++                                        ? "bg-white text-[#0A0A0B] shadow-lg shadow-white/10"
++                                        : "bg-white/[0.05] text-white/40"
++                                )}
++                            >
+                                 {isTyping ? (
+                                     <LoaderIcon className="w-4 h-4 animate-[spin_2s_linear_infinite]" />
+                                 ) : (
+@@ -509,13 +674,13 @@ export function VideoUploadInterface() {
+                                 )}
+                                 <span>Send</span>
+                             </motion.button>
+-                        </div>
+-                    </motion.div>
+-
+-                    <div className="flex flex-wrap items-center justify-center gap-2">
+-                        {commandSuggestions.map((suggestion, index) => (
+-                            <motion.button
+-                                key={suggestion.prefix}
++                        </div>
++                    </motion.div>
++
++                    <div className="flex flex-wrap items-center justify-center gap-2">
++                        {commandSuggestions.map((suggestion, index) => (
++                            <motion.button
++                                key={suggestion.prefix}
+                                 onClick={() => selectCommandSuggestion(index)}
+                                 className="flex items-center gap-2 px-3 py-2 bg-white/[0.02] hover:bg-white/[0.05] rounded-lg text-sm text-white/60 hover:text-white/90 transition-all relative group"
+                                 initial={{ opacity: 0, y: 10 }}
+@@ -542,196 +707,214 @@ export function VideoUploadInterface() {
+                 </motion.div>
+             </div>
+ 
+-            {/* PROCESSING MODAL */}
+-            <AnimatePresence>
+-                {showProcessingModal && (
+-                    <div>
+-                        {/* Backdrop */}
+-                        <motion.div
+-                            initial={{ opacity: 0 }}
+-                            animate={{ opacity: 1 }}
+-                            exit={{ opacity: 0 }}
+-                            onClick={() => setShowProcessingModal(false)}
+-                            className="fixed inset-0 z-[99] bg-black/60 backdrop-blur-sm"
+-                        />
+-
+-                        {/* Centered Modal */}
+-                        <motion.div
+-                            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+-                            animate={{ opacity: 1, scale: 1, y: 0 }}
+-                            exit={{ opacity: 0, scale: 0.95, y: 20 }}
+-                            className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+-                        >
+-                            <div className="w-full max-w-3xl h-[80vh] bg-gradient-to-br from-white/5 to-black/40 border border-white/15 rounded-3xl shadow-[0_20px_80px_rgba(0,0,0,0.8),0_0_100px_rgba(139,92,246,0.25)] backdrop-blur-xl overflow-hidden flex flex-col">
+-                                {/* Header with Close Button */}
+-                                <div className="flex items-center justify-between px-8 py-6 border-b border-white/10">
+-                                    <h2 className="text-lg font-semibold text-white">
+-                                        PROMPT: <span className="text-white/60">{uploadedFileName}</span>
+-                                    </h2>
+-                                    <motion.button
+-                                        whileHover={{ scale: 1.1 }}
+-                                        whileTap={{ scale: 0.9 }}
+-                                        onClick={() => setShowProcessingModal(false)}
+-                                        className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+-                                    >
+-                                        <XIcon className="w-5 h-5 text-white/80 hover:text-white" />
+-                                    </motion.button>
+-                                </div>
+-
+-                                {/* Content */}
+-                                <div className="flex-1 overflow-hidden flex gap-6 p-6">
+-                                    {/* Left: Video + Chat */}
+-                                    <div className="flex-1 flex flex-col gap-4">
+-                                        {/* Video Preview */}
+-                                        <motion.div 
+-                                            initial={{ opacity: 0, scale: 0.95 }}
+-                                            animate={{ opacity: 1, scale: 1 }}
+-                                            transition={{ duration: 0.4 }}
+-                                            className="relative flex-1 rounded-2xl overflow-hidden bg-black border border-white/20 shadow-[0_20px_60px_rgba(0,0,0,0.8),0_0_60px_rgba(139,92,246,0.2)]"
+-                                        >
+-                                            <video
+-                                                src={uploadedVideoUrl}
+-                                                controls
+-                                                className="w-full h-full object-contain"
+-                                                autoPlay
+-                                                muted
+-                                            />
+-                                        </motion.div>
+-
+-                                        {/* Chat Input */}
+-                                        <motion.div
+-                                            initial={{ opacity: 0, y: 10 }}
+-                                            animate={{ opacity: 1, y: 0 }}
+-                                            transition={{ duration: 0.4, delay: 0.2 }}
+-                                            className="flex-shrink-0"
+-                                        >
+-                                            <ChatInput
+-                                                variant="default"
+-                                                value={chatValue}
+-                                                onChange={(e) => setChatValue(e.target.value)}
+-                                                onSubmit={handleChatSubmit}
+-                                                loading={chatLoading}
+-                                            >
+-                                                <ChatInputTextArea 
+-                                                    placeholder="Ask about your video..."
+-                                                    rows={1}
+-                                                />
+-                                                <ChatInputSubmit />
+-                                            </ChatInput>
+-                                        </motion.div>
+-                                    </div>
+-
+-                                    {/* Right: Processing Steps */}
+-                                    <motion.div 
+-                                        initial={{ opacity: 0, x: 20 }}
+-                                        animate={{ opacity: 1, x: 0 }}
+-                                        transition={{ duration: 0.4, delay: 0.1 }}
+-                                        className="w-64 flex flex-col gap-4 bg-gradient-to-b from-white/5 to-transparent rounded-2xl p-5 border border-white/10 shadow-[0_20px_40px_rgba(0,0,0,0.6),0_0_40px_rgba(139,92,246,0.1)] backdrop-blur-sm overflow-y-auto"
+-                                    >
+-                                        <h3 className="text-sm font-semibold text-white/80 uppercase tracking-wide">Processing Status</h3>
+-                                        <div className="space-y-3 flex-1">
+-                                            {processingSteps.map((step, index) => (
+-                                                <motion.div
+-                                                    key={step.id}
+-                                                    initial={{ opacity: 0, x: -20 }}
+-                                                    animate={{ opacity: 1, x: 0 }}
+-                                                    transition={{ delay: index * 0.1 }}
+-                                                    className={cn(
+-                                                        "p-4 rounded-xl border transition-all shadow-lg",
+-                                                        step.status === 'complete' && "bg-green-500/15 border-green-500/40 shadow-[0_0_20px_rgba(34,197,94,0.15)]",
+-                                                        step.status === 'processing' && "bg-blue-500/15 border-blue-500/40 shadow-[0_0_20px_rgba(59,130,246,0.15)]",
+-                                                        step.status === 'pending' && "bg-white/5 border-white/15 shadow-[0_4px_12px_rgba(0,0,0,0.3)]"
+-                                                    )}
+-                                                >
+-                                                    <div className="flex items-center gap-3">
+-                                                        {step.status === 'processing' && (
+-                                                            <motion.div
+-                                                                animate={{ rotate: 360 }}
+-                                                                transition={{ duration: 2, repeat: Number.POSITIVE_INFINITY }}
+-                                                                className="w-4 h-4 border-2 border-blue-500/60 border-t-blue-500 rounded-full flex-shrink-0"
+-                                                            />
+-                                                        )}
+-                                                        {step.status === 'complete' && (
+-                                                            <div className="w-4 h-4 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
+-                                                                <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+-                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+-                                                                </svg>
+-                                                            </div>
+-                                                        )}
+-                                                        {step.status === 'pending' && (
+-                                                            <div className="w-4 h-4 rounded-full border-2 border-white/20 flex-shrink-0" />
+-                                                        )}
+-                                                        <span className={cn(
+-                                                            "text-sm font-medium",
+-                                                            step.status === 'pending' && "text-white/60"
+-                                                        )}>
+-                                                            {step.title}
+-                                                        </span>
+-                                                    </div>
+-                                                </motion.div>
+-                                            ))}
+-                                        </div>
+-                                    </motion.div>
+-                                </div>
+-                            </div>
+-                        </motion.div>
+-                    </div>
+-                )}
+-            </AnimatePresence>
+-
+-            {/* FILE UPLOAD MODAL */}
+-            <AnimatePresence>
+-                {showFileUploadModal && (
+-                    <motion.div
+-                        initial={{ opacity: 0 }}
+-                        animate={{ opacity: 1 }}
+-                        exit={{ opacity: 0 }}
+-                        onClick={() => setShowFileUploadModal(false)}
+-                        className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
+-                    >
+-                        <motion.div
+-                            initial={{ scale: 0.95, opacity: 0 }}
+-                            animate={{ scale: 1, opacity: 1 }}
+-                            exit={{ scale: 0.95, opacity: 0 }}
+-                            onClick={(e) => e.stopPropagation()}
+-                            className="w-full max-w-2xl"
+-                        >
+-                            <div className="relative bg-gradient-to-b from-white/10 to-white/5 border border-white/10 rounded-xl backdrop-blur-xl">
+-                                <div className="flex items-center justify-between p-6 border-b border-white/10">
+-                                    <h2 className="text-xl font-semibold text-white">Upload Files</h2>
+-                                    <button
+-                                        onClick={() => setShowFileUploadModal(false)}
+-                                        className="p-1 hover:bg-white/10 rounded-lg transition-colors"
+-                                    >
+-                                        <XIcon className="w-5 h-5 text-white/60 hover:text-white/90" />
+-                                    </button>
+-                                </div>
+-                                <div className="p-6">
+-                                    <FileUpload onChange={(files) => {
+-                                        if (files.length > 0) {
+-                                            setUploadedFileName(files[0].name);
+-                                            const videoUrl = URL.createObjectURL(files[0]);
+-                                            setUploadedVideoUrl(videoUrl);
+-                                            setShowFileUploadModal(false);
+-                                            setProcessingSteps([
+-                                                { id: 1, title: 'Video Analysis', status: 'processing' },
+-                                                { id: 2, title: 'Scene Detection', status: 'pending' },
+-                                                { id: 3, title: 'Audio Processing', status: 'pending' },
+-                                                { id: 4, title: 'AI Enhancement', status: 'pending' }
+-                                            ]);
+-                                            setCurrentStep(0);
+-                                            setShowProcessingModal(true);
+-                                        }
+-                                    }} />
+-                                </div>
+-                            </div>
+-                        </motion.div>
+-                    </motion.div>
+-                )}
+-            </AnimatePresence>
+-        </div>
+-    );
+-}
++            <SendPopup
++                open={sendOpen}
++                onOpenChange={setSendOpen}
++                onOpenEditor={() => {
++                    router.push(projectId ? `/editor/${projectId}` : "/editor");
++                }}
++            />
++
++            {/* ADD SOURCE MODAL */}
++            <Dialog open={showFileUploadModal} onOpenChange={setShowFileUploadModal}>
++                <DialogContent className="max-w-3xl p-0">
++                    <DialogHeader className="px-6 pt-6">
++                        <DialogTitle>Add Source</DialogTitle>
++                        <DialogDescription>
++                            Import links, uploads, integrations, brand kit, and references (mock).
++                        </DialogDescription>
++                    </DialogHeader>
++
++                    <div className="px-6 pb-6">
++                        <Tabs defaultValue="link">
++                            <TabsList className="w-full">
++                                <TabsTrigger value="link" className="flex-1">Link</TabsTrigger>
++                                <TabsTrigger value="upload" className="flex-1">Upload</TabsTrigger>
++                                <TabsTrigger value="integrations" className="flex-1">Integrations</TabsTrigger>
++                                <TabsTrigger value="brand" className="flex-1">Brand Kit</TabsTrigger>
++                                <TabsTrigger value="refs" className="flex-1">References</TabsTrigger>
++                            </TabsList>
++
++                            <TabsContent value="link" className="space-y-4">
++                                <div className="flex flex-wrap gap-2">
++                                    {["YouTube", "Drive", "Dropbox", "Loom", "X", "TikTok"].map((p) => (
++                                        <button
++                                            key={p}
++                                            onClick={() => setSourceProvider(p)}
++                                            className={cn(
++                                                "rounded-full border px-3 py-1.5 text-xs transition-colors",
++                                                sourceProvider === p
++                                                    ? "border-purple-400/30 bg-purple-500/10 text-white"
++                                                    : "border-white/10 bg-white/[0.02] text-white/60 hover:bg-white/[0.05] hover:text-white/80"
++                                            )}
++                                        >
++                                            {p}
++                                        </button>
++                                    ))}
++                                </div>
++
++                                <div className="flex items-center gap-2">
++                                    <Input
++                                        value={sourceUrl}
++                                        onChange={(e) => setSourceUrl(e.target.value)}
++                                        placeholder="Paste a link…"
++                                    />
++                                    <Button
++                                        onClick={() => {
++                                            if (!sourceUrl.trim()) return;
++                                            addSourceChip(`${sourceProvider} imported`);
++                                            setSourceUrl("");
++                                            setShowFileUploadModal(false);
++                                        }}
++                                        className="bg-white text-[#0A0A0B] hover:bg-white/90"
++                                    >
++                                        Import
++                                    </Button>
++                                </div>
++                                <div className="text-xs text-white/45">
++                                    Supported: YouTube, Drive, Dropbox, Loom, X, TikTok (mock).
++                                </div>
++                            </TabsContent>
++
++                            <TabsContent value="upload" className="space-y-3">
++                                <div className="text-xs text-white/45">
++                                    Upload video/audio/srt/fonts/images (mock). Video preview uses a local object URL.
++                                </div>
++                                <FileUpload
++                                    onChange={(files) => {
++                                        if (files.length === 0) return;
++                                        const f = files[0]!;
++                                        setUploadedFileName(f.name);
++                                        try {
++                                            const url = URL.createObjectURL(f);
++                                            setUploadedVideoUrl(url);
++                                        } catch {
++                                            // ignore
++                                        }
++                                        addSourceChip(`Upload: ${f.name}`);
++                                        setShowFileUploadModal(false);
++                                    }}
++                                />
++                            </TabsContent>
++
++                            <TabsContent value="integrations" className="grid gap-3 sm:grid-cols-2">
++                                {[
++                                    { name: "Google Drive", note: "Import from your drive (mock)" },
++                                    { name: "Dropbox", note: "Import folders and files (mock)" },
++                                    { name: "Loom", note: "Pull recordings (mock)" },
++                                    { name: "TikTok", note: "Import source clips (mock)" },
++                                ].map((c) => (
++                                    <div
++                                        key={c.name}
++                                        className="rounded-xl border border-white/10 bg-white/[0.03] p-4"
++                                    >
++                                        <div className="text-sm font-medium text-white/85">{c.name}</div>
++                                        <div className="mt-1 text-xs text-white/45">{c.note}</div>
++                                        <div className="mt-3">
++                                            <Button
++                                                variant="outline"
++                                                className="w-full"
++                                                onClick={() => addSourceChip(`${c.name} connected`)}
++                                            >
++                                                Connect (Mock)
++                                            </Button>
++                                        </div>
++                                    </div>
++                                ))}
++                            </TabsContent>
++
++                            <TabsContent value="brand" className="space-y-3">
++                                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
++                                    <div className="text-sm font-medium text-white/85">Brand Kit</div>
++                                    <div className="mt-1 text-xs text-white/45">
++                                        Fonts, colors, watermark and safe margins (mock).
++                                    </div>
++                                    <div className="mt-3 flex items-center gap-2">
++                                        <Button
++                                            className="bg-white text-[#0A0A0B] hover:bg-white/90"
++                                            onClick={() => addSourceChip("Brand kit loaded")}
++                                        >
++                                            Load Brand Kit
++                                        </Button>
++                                        <Button
++                                            variant="outline"
++                                            onClick={() => addSourceChip("Watermark enabled")}
++                                        >
++                                            Enable watermark
++                                        </Button>
++                                    </div>
++                                </div>
++                            </TabsContent>
++
++                            <TabsContent value="refs" className="space-y-3">
++                                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
++                                    <div className="text-sm font-medium text-white/85">Reference</div>
++                                    <div className="mt-1 text-xs text-white/45">
++                                        Use your local inspiration video for interaction patterns only (no asset copying).
++                                    </div>
++                                    <div className="mt-3 flex items-center gap-2">
++                                        <Button
++                                            variant="outline"
++                                            onClick={() => addSourceChip("Reference notes added")}
++                                        >
++                                            Add reference note
++                                        </Button>
++                                    </div>
++                                </div>
++                            </TabsContent>
++                        </Tabs>
++                    </div>
++                </DialogContent>
++            </Dialog>
++
++            {/* TEMPLATES + STYLES */}
++            <Sheet open={templatesOpen} onOpenChange={setTemplatesOpen}>
++                <SheetContent side="right" className="p-0 flex flex-col overflow-hidden">
++                    <SheetHeader className="px-6 pt-6">
++                        <SheetTitle>Templates and Styles</SheetTitle>
++                        <SheetDescription>
++                            Select one active style. Saved in localStorage.
++                        </SheetDescription>
++                    </SheetHeader>
++                    <div className="flex-1 overflow-y-auto overscroll-contain px-6 pb-6 pt-4 space-y-4">
++                        <div className="grid gap-3">
++                            {TEMPLATE_STYLES.map((style) => {
++                                const selected = style.id === activeStyleId;
++                                return (
++                                    <button
++                                        key={style.id}
++                                        onClick={() => {
++                                            setActiveStyleId(style.id);
++                                            persistActiveStyleId(style.id);
++                                            setTemplatesOpen(false);
++                                        }}
++                                        className={cn(
++                                            "w-full text-left rounded-xl border p-4 transition-colors",
++                                            selected
++                                                ? "border-purple-400/30 bg-purple-500/10"
++                                                : "border-white/10 bg-white/[0.02] hover:bg-white/[0.05]"
++                                        )}
++                                    >
++                                        <div className="flex items-center justify-between gap-3">
++                                            <div className="text-sm font-semibold text-white/90">{style.name}</div>
++                                            {selected ? <Badge variant="success">Active</Badge> : <Badge variant="secondary">Style</Badge>}
++                                        </div>
++                                        <div className="mt-1 text-xs text-white/45">{style.description}</div>
++                                        <div className="mt-3 flex flex-wrap gap-2 text-xs">
++                                            <Badge variant="secondary">Captions: {style.tags.captionIntensity}</Badge>
++                                            <Badge variant="secondary">Pacing: {style.tags.pacing}</Badge>
++                                            <Badge variant="secondary">B-roll: {style.tags.broll}</Badge>
++                                        </div>
++                                    </button>
++                                );
++                            })}
++                        </div>
++                    </div>
++                </SheetContent>
++            </Sheet>
++        </div>
++    );
++}
+ 
+ function TypingDots() {
+     return (
+diff --git a/components/ui/send-popup.tsx b/components/ui/send-popup.tsx
+new file mode 100644
+index 0000000..80a76a7
+--- /dev/null
++++ b/components/ui/send-popup.tsx
+@@ -0,0 +1,52 @@
++'use client';
++
++import * as React from 'react';
++import Image from 'next/image';
++import { Dialog, DialogContent } from '@/components/ui/dialog';
++import { Button } from '@/components/ui/button';
++
++type SendPopupProps = {
++  open: boolean;
++  onOpenChange: (open: boolean) => void;
++  onOpenEditor: () => void;
++};
++
++export function SendPopup({ open, onOpenChange, onOpenEditor }: SendPopupProps) {
++  return (
++    <Dialog open={open} onOpenChange={onOpenChange}>
++      <DialogContent className="overflow-hidden border-0 bg-transparent p-0 shadow-none sm:max-w-2xl">
++        <div className="relative">
++          <Image
++            src="/ui/sci-fi-frame.png"
++            alt="Frame"
++            width={1200}
++            height={700}
++            className="h-auto w-full select-none"
++            priority
++          />
++
++          <div className="absolute inset-0 flex items-center justify-center p-8">
++            <div className="w-full max-w-lg text-center">
++              <div className="mx-auto mb-3 h-2 w-2 animate-pulse rounded-full bg-white/70" />
++
++              <h2 className="text-2xl font-semibold text-white">Queued</h2>
++              <p className="mt-2 text-sm text-white/70">
++                Your request has been received. You can open the editor when ready.
++              </p>
++
++              <div className="mt-6 flex items-center justify-center gap-3">
++                <Button onClick={onOpenEditor} className="min-w-36">
++                  Open Editor
++                </Button>
++                <Button variant="secondary" onClick={() => onOpenChange(false)} className="min-w-36">
++                  Close
++                </Button>
++              </div>
++            </div>
++          </div>
++        </div>
++      </DialogContent>
++    </Dialog>
++  );
++}
++
+\n# Binary file added: public/ui/sci-fi-frame.png\n
