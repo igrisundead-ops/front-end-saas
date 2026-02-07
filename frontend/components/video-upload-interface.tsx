@@ -997,6 +997,106 @@ export function VideoUploadInterface() {
                 </DialogContent>
             </Dialog>
 
+            {/* YOUTUBE VIDEO PREVIEW MODAL */}
+            <Dialog open={showVideoPreview} onOpenChange={setShowVideoPreview}>
+                <DialogContent className="max-w-4xl p-0 bg-[#0a0a0b] border border-white/10 overflow-hidden">
+                    <motion.div
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.95 }}
+                        transition={{ duration: 0.2 }}
+                    >
+                        {/* Header */}
+                        <div className="px-6 pt-6 pb-4 border-b border-white/5">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2 rounded-lg bg-red-500/10 border border-red-500/20">
+                                        <Video className="w-5 h-5 text-red-400" />
+                                    </div>
+                                    <div>
+                                        <h2 className="text-lg font-semibold text-white">Video Preview</h2>
+                                        <p className="text-xs text-white/40 mt-0.5">YouTube Video Ready to Import</p>
+                                    </div>
+                                </div>
+                                <Badge variant="secondary" className="bg-red-500/10 text-red-400 border-red-500/20">
+                                    YouTube
+                                </Badge>
+                            </div>
+                        </div>
+
+                        {/* Video Player */}
+                        <div className="relative w-full aspect-video bg-black">
+                            {previewVideoId && (
+                                <iframe
+                                    src={`https://www.youtube.com/embed/${previewVideoId}?autoplay=1&rel=0&modestbranding=1`}
+                                    title="YouTube video preview"
+                                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                    allowFullScreen
+                                    className="absolute inset-0 w-full h-full"
+                                />
+                            )}
+                            
+                            {/* Gradient overlays for professional look */}
+                            <div className="absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-black/50 to-transparent pointer-events-none" />
+                            <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/50 to-transparent pointer-events-none" />
+                        </div>
+
+                        {/* Video Info & Actions */}
+                        <div className="px-6 py-5 space-y-4">
+                            {/* URL Display */}
+                            <div className="flex items-center gap-3 p-3 rounded-lg bg-white/[0.02] border border-white/5">
+                                <LinkIcon className="w-4 h-4 text-white/40 flex-shrink-0" />
+                                <span className="text-sm text-white/60 truncate flex-1">
+                                    https://youtube.com/watch?v={previewVideoId}
+                                </span>
+                                <button
+                                    onClick={() => {
+                                        navigator.clipboard.writeText(`https://youtube.com/watch?v=${previewVideoId}`);
+                                    }}
+                                    className="text-xs text-white/40 hover:text-white/70 transition-colors px-2 py-1 rounded hover:bg-white/5"
+                                >
+                                    Copy
+                                </button>
+                            </div>
+
+                            {/* Action Buttons */}
+                            <div className="flex items-center justify-between gap-4">
+                                <Button
+                                    variant="outline"
+                                    onClick={() => {
+                                        setShowVideoPreview(false);
+                                        setPreviewVideoId(null);
+                                        setShowFileUploadModal(true);
+                                    }}
+                                    className="border-white/10 text-white/70 hover:bg-white/5 hover:text-white"
+                                >
+                                    <XIcon className="w-4 h-4 mr-2" />
+                                    Cancel
+                                </Button>
+                                <div className="flex items-center gap-2">
+                                    <Button
+                                        variant="outline"
+                                        onClick={() => {
+                                            window.open(`https://youtube.com/watch?v=${previewVideoId}`, '_blank');
+                                        }}
+                                        className="border-white/10 text-white/70 hover:bg-white/5 hover:text-white"
+                                    >
+                                        Open in YouTube
+                                    </Button>
+                                    <Button
+                                        onClick={handleConfirmVideo}
+                                        className="bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 text-white border-0 shadow-lg shadow-purple-500/20"
+                                    >
+                                        <Upload className="w-4 h-4 mr-2" />
+                                        Import Video
+                                    </Button>
+                                </div>
+                            </div>
+                        </div>
+                    </motion.div>
+                </DialogContent>
+            </Dialog>
+
             {/* TEMPLATES + STYLES */}
             <Sheet open={templatesOpen} onOpenChange={setTemplatesOpen}>
                 <SheetContent side="right" className="p-0 flex flex-col overflow-hidden">
