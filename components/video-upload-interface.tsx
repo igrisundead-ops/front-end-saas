@@ -313,26 +313,51 @@ export function VideoUploadInterface() {
                 const res = await fetch("/api/airtable/images?limit=200", { cache: "no-store" });
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-                const data = (await res.json()) as AirtableImageArchiveResponse;
+                const data = (await res.json()) as AirtableImageArchiveResponse & { configured?: boolean };
+
+                // If Airtable is not configured, skip silently
+                if (data.configured === false) {
+                    console.log("[v0] Airtable not configured, skipping style previews");
+                    if (!cancelled) setAirtableStylePreviews({});
+                    return;
+                }
+
+                console.log("[v0] Airtable response: items count =", data.items?.length ?? 0);
+
                 const byStyle: Record<string, string[]> = {};
 
                 for (const item of data.items ?? []) {
-                    const styleKey = norm((item.styleKey ?? "").trim());
+                    // Index by both styleKey and name for flexible matching
                     const src = item.thumbUrl ?? item.imageUrl ?? null;
-                    if (!styleKey || !src) continue;
-                    (byStyle[styleKey] ??= []).push(src);
+                    if (!src) continue;
+
+                    const keys: string[] = [];
+                    if (item.styleKey) keys.push(norm(item.styleKey));
+                    if (item.name) keys.push(norm(item.name));
+
+                    for (const key of keys) {
+                        if (!key) continue;
+                        (byStyle[key] ??= []).push(src);
+                    }
                 }
 
                 for (const key of Object.keys(byStyle)) {
                     byStyle[key] = Array.from(new Set(byStyle[key])).slice(0, 3);
                 }
 
-                if (process.env.NODE_ENV === "development") {
-                    console.log("[Airtable] styleKeys:", Object.keys(byStyle).slice(0, 20));
-                }
+                console.log("[v0] Airtable styleKeys indexed:", Object.keys(byStyle));
+
+                // Log the template candidates we'll try to match
+                const templateCandidates = STYLE_TEMPLATES.map((t) => ({
+                    id: t.id,
+                    name: t.name,
+                    candidates: [t.id, t.name, t.id.replace(/^style_/, "")].map(norm),
+                }));
+                console.log("[v0] Template matching candidates:", templateCandidates);
+
                 if (!cancelled) setAirtableStylePreviews(byStyle);
             } catch (err) {
-                console.error("Failed to load Airtable Image Archive previews", err);
+                console.error("[v0] Failed to load Airtable Image Archive previews", err);
                 if (!cancelled) setAirtableStylePreviews({});
             }
         }
@@ -952,18 +977,19 @@ export function VideoUploadInterface() {
                     <SheetHeader className="px-6 pt-6">
                         <SheetTitle>Templates and Styles</SheetTitle>
                         <SheetDescription>
-                            Select one active style. Saved in localStorage.
+                            Select one active style. Previews loaded from Airtable.
                         </SheetDescription>
-                        {process.env.NODE_ENV === "development" && (
-                            <div className="mt-1 text-[11px] leading-tight text-white/45">
-                                Airtable previews loaded: {Object.keys(airtableStylePreviews).length} styles
-                                {Object.keys(airtableStylePreviews).length === 0 && (
-                                    <span className="ml-2 text-white/35">
-                                        No Airtable previews matched. Check styleKey mapping.
-                                    </span>
-                                )}
-                            </div>
-                        )}
+                        <div className="mt-1 text-[11px] leading-tight text-white/45">
+                            {Object.keys(airtableStylePreviews).length > 0 ? (
+                                <span className="text-green-400/70">
+                                    Airtable connected: {Object.keys(airtableStylePreviews).length} style previews loaded
+                                </span>
+                            ) : (
+                                <span className="text-white/35">
+                                    Loading Airtable previews...
+                                </span>
+                            )}
+                        </div>
                     </SheetHeader>
                     <div className="flex-1 overflow-y-auto overscroll-contain px-6 pb-6 pt-4 space-y-4">
                         <div className="grid gap-3">
@@ -981,9 +1007,16 @@ export function VideoUploadInterface() {
                                     template.id,
                                     template.name,
                                     template.id.replace(/^style_/, ""),
+                                    // Also try with underscores converted to dashes and vice versa
+                                    template.id.replace(/_/g, "-"),
+                                    template.id.replace(/^style_/, "").replace(/_/g, "-"),
                                 ].map(norm);
 
-                                const matchedKey = candidates.find((k) => !!airtableStylePreviews[k]);
+                                const matchedKey = candidates.find((k) => !!airtableStylePreviews[k])
+                                    // Fallback: partial match - check if any airtable key contains a candidate
+                                    ?? Object.keys(airtableStylePreviews).find((aKey) =>
+                                        candidates.some((c) => c.length > 2 && (aKey.includes(c) || c.includes(aKey)))
+                                    );
 
                                 const previewImages = matchedKey
                                     ? airtableStylePreviews[matchedKey]
@@ -1074,14 +1107,17 @@ export function VideoUploadInterface() {
                                                 <div className="flex items-center justify-between gap-3">
                                                     <div className="text-sm font-semibold text-white/90">{template.name}</div>
                                                     <div className="flex items-center gap-2">
-                                                        {process.env.NODE_ENV === "development" && (
-                                                            <Badge
-                                                                variant="secondary"
-                                                                className="text-[10px] px-2 py-0.5"
-                                                            >
-                                                                {source === "airtable" ? "Airtable" : "Local"}
-                                                            </Badge>
-                                                        )}
+                                                        <Badge
+                                                            variant="secondary"
+                                                            className={cn(
+                                                                "text-[10px] px-2 py-0.5",
+                                                                source === "airtable"
+                                                                    ? "bg-green-500/15 text-green-400/80 border-green-400/20"
+                                                                    : "bg-white/5 text-white/40 border-white/10"
+                                                            )}
+                                                        >
+                                                            {source === "airtable" ? "Airtable" : "Local"}
+                                                        </Badge>
                                                         {selected ? <Badge variant="success">Active</Badge> : <Badge variant="secondary">Style</Badge>}
                                                     </div>
                                                 </div>
