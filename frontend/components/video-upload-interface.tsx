@@ -999,97 +999,209 @@ export function VideoUploadInterface() {
 
             {/* YOUTUBE VIDEO PREVIEW MODAL */}
             <Dialog open={showVideoPreview} onOpenChange={setShowVideoPreview}>
-                <DialogContent className="max-w-4xl p-0 bg-[#0a0a0b] border border-white/10 overflow-hidden">
+                <DialogContent className="max-w-5xl p-0 bg-[#0a0a0b] border border-white/10 overflow-hidden max-h-[85vh]">
                     <motion.div
                         initial={{ opacity: 0, scale: 0.95 }}
                         animate={{ opacity: 1, scale: 1 }}
                         exit={{ opacity: 0, scale: 0.95 }}
                         transition={{ duration: 0.2 }}
+                        className="flex flex-col lg:flex-row h-full"
                     >
-                        {/* Header */}
-                        <div className="px-6 pt-6 pb-4 border-b border-white/5">
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-3">
-                                    <div className="p-2 rounded-lg bg-red-500/10 border border-red-500/20">
-                                        <Video className="w-5 h-5 text-red-400" />
+                        {/* Left Side - Video Player */}
+                        <div className="flex-1 flex flex-col min-w-0">
+                            {/* Compact Header */}
+                            <div className="px-4 py-3 border-b border-white/5 flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <div className="p-1.5 rounded-md bg-red-500/10 border border-red-500/20">
+                                        <Video className="w-4 h-4 text-red-400" />
                                     </div>
-                                    <div>
-                                        <h2 className="text-lg font-semibold text-white">Video Preview</h2>
-                                        <p className="text-xs text-white/40 mt-0.5">YouTube Video Ready to Import</p>
-                                    </div>
+                                    <span className="text-sm font-medium text-white">Video Preview</span>
                                 </div>
-                                <Badge variant="secondary" className="bg-red-500/10 text-red-400 border-red-500/20">
+                                <Badge variant="secondary" className="bg-red-500/10 text-red-400 border-red-500/20 text-xs">
                                     YouTube
                                 </Badge>
                             </div>
-                        </div>
 
-                        {/* Video Player */}
-                        <div className="relative w-full aspect-video bg-black">
+                            {/* Thumbnail Preview Card */}
                             {previewVideoId && (
-                                <iframe
-                                    src={`https://www.youtube.com/embed/${previewVideoId}?autoplay=1&rel=0&modestbranding=1`}
-                                    title="YouTube video preview"
-                                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                                    allowFullScreen
-                                    className="absolute inset-0 w-full h-full"
-                                />
+                                <div className="px-4 py-3 border-b border-white/5">
+                                    <div className="flex items-start gap-3">
+                                        <div className="relative w-28 h-16 rounded-lg overflow-hidden flex-shrink-0 bg-white/5">
+                                            <img 
+                                                src={`https://img.youtube.com/vi/${previewVideoId}/mqdefault.jpg`}
+                                                alt="Video thumbnail"
+                                                className="w-full h-full object-cover"
+                                            />
+                                            <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+                                            <div className="absolute bottom-1 right-1 px-1 py-0.5 bg-black/80 rounded text-[10px] text-white/90 font-medium">
+                                                HD
+                                            </div>
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-sm font-medium text-white/90 line-clamp-2">YouTube Video</p>
+                                            <p className="text-xs text-white/40 mt-1 truncate">youtube.com</p>
+                                            <div className="flex items-center gap-2 mt-1.5">
+                                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-white/50">Public</span>
+                                                <span className="text-[10px] text-white/40">• Ready to import</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                             )}
-                            
-                            {/* Gradient overlays for professional look */}
-                            <div className="absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-black/50 to-transparent pointer-events-none" />
-                            <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/50 to-transparent pointer-events-none" />
-                        </div>
 
-                        {/* Video Info & Actions */}
-                        <div className="px-6 py-5 space-y-4">
-                            {/* URL Display */}
-                            <div className="flex items-center gap-3 p-3 rounded-lg bg-white/[0.02] border border-white/5">
-                                <LinkIcon className="w-4 h-4 text-white/40 flex-shrink-0" />
-                                <span className="text-sm text-white/60 truncate flex-1">
-                                    https://youtube.com/watch?v={previewVideoId}
-                                </span>
-                                <button
-                                    onClick={() => {
-                                        navigator.clipboard.writeText(`https://youtube.com/watch?v=${previewVideoId}`);
-                                    }}
-                                    className="text-xs text-white/40 hover:text-white/70 transition-colors px-2 py-1 rounded hover:bg-white/5"
-                                >
-                                    Copy
-                                </button>
+                            {/* Video Player - Compact */}
+                            <div className="relative w-full aspect-video bg-black max-h-[280px]">
+                                {previewVideoId && (
+                                    <iframe
+                                        src={`https://www.youtube.com/embed/${previewVideoId}?autoplay=1&rel=0&modestbranding=1`}
+                                        title="YouTube video preview"
+                                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                        allowFullScreen
+                                        className="absolute inset-0 w-full h-full"
+                                    />
+                                )}
                             </div>
 
-                            {/* Action Buttons */}
-                            <div className="flex items-center justify-between gap-4">
-                                <Button
-                                    variant="outline"
-                                    onClick={() => {
-                                        setShowVideoPreview(false);
-                                        setPreviewVideoId(null);
-                                        setShowFileUploadModal(true);
-                                    }}
-                                    className="border-white/10 text-white/70 hover:bg-white/5 hover:text-white"
-                                >
-                                    <XIcon className="w-4 h-4 mr-2" />
-                                    Cancel
-                                </Button>
-                                <div className="flex items-center gap-2">
+                            {/* URL & Actions - Compact */}
+                            <div className="px-4 py-3 space-y-3 border-t border-white/5">
+                                <div className="flex items-center gap-2 p-2 rounded-md bg-white/[0.02] border border-white/5">
+                                    <LinkIcon className="w-3.5 h-3.5 text-white/40 flex-shrink-0" />
+                                    <span className="text-xs text-white/50 truncate flex-1">
+                                        youtu.be/{previewVideoId}
+                                    </span>
+                                    <button
+                                        onClick={() => navigator.clipboard.writeText(`https://youtube.com/watch?v=${previewVideoId}`)}
+                                        className="text-[10px] text-white/40 hover:text-white/70 transition-colors px-1.5 py-0.5 rounded hover:bg-white/5"
+                                    >
+                                        Copy
+                                    </button>
+                                </div>
+
+                                <div className="flex items-center justify-between gap-2">
                                     <Button
                                         variant="outline"
+                                        size="sm"
                                         onClick={() => {
-                                            window.open(`https://youtube.com/watch?v=${previewVideoId}`, '_blank');
+                                            setShowVideoPreview(false);
+                                            setPreviewVideoId(null);
+                                            setShowFileUploadModal(true);
                                         }}
-                                        className="border-white/10 text-white/70 hover:bg-white/5 hover:text-white"
+                                        className="border-white/10 text-white/60 hover:bg-white/5 hover:text-white text-xs h-8"
                                     >
-                                        Open in YouTube
+                                        <XIcon className="w-3 h-3 mr-1.5" />
+                                        Cancel
                                     </Button>
-                                    <Button
-                                        onClick={handleConfirmVideo}
-                                        className="bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 text-white border-0 shadow-lg shadow-purple-500/20"
-                                    >
-                                        <Upload className="w-4 h-4 mr-2" />
-                                        Import Video
-                                    </Button>
+                                    <div className="flex items-center gap-2">
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => window.open(`https://youtube.com/watch?v=${previewVideoId}`, '_blank')}
+                                            className="border-white/10 text-white/60 hover:bg-white/5 hover:text-white text-xs h-8"
+                                        >
+                                            Open in YT
+                                        </Button>
+                                        <Button
+                                            size="sm"
+                                            onClick={handleConfirmVideo}
+                                            className="bg-gradient-to-r from-purple-500 to-violet-600 hover:from-purple-600 hover:to-violet-700 text-white border-0 shadow-lg shadow-purple-500/20 text-xs h-8"
+                                        >
+                                            <Upload className="w-3 h-3 mr-1.5" />
+                                            Import
+                                        </Button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Right Side - AI Processing Panel */}
+                        <div className="w-full lg:w-72 border-t lg:border-t-0 lg:border-l border-white/5 bg-gradient-to-b from-purple-500/[0.02] to-transparent flex flex-col">
+                            <div className="px-4 py-3 border-b border-white/5">
+                                <div className="flex items-center gap-2">
+                                    <div className="relative">
+                                        <Sparkles className="w-4 h-4 text-purple-400" />
+                                        <motion.div
+                                            className="absolute inset-0 rounded-full bg-purple-400/30"
+                                            animate={{ scale: [1, 1.5, 1], opacity: [0.5, 0, 0.5] }}
+                                            transition={{ duration: 2, repeat: Infinity }}
+                                        />
+                                    </div>
+                                    <span className="text-sm font-medium text-white/90">AI Analysis</span>
+                                </div>
+                                <p className="text-[10px] text-white/40 mt-1">Processing video content...</p>
+                            </div>
+
+                            <div className="flex-1 px-4 py-3 space-y-2 overflow-y-auto max-h-[300px] lg:max-h-none">
+                                <ProcessingItem 
+                                    icon={<Video className="w-3 h-3" />}
+                                    label="Detecting video format"
+                                    status="complete"
+                                    delay={0}
+                                />
+                                <ProcessingItem 
+                                    icon={<FileUp className="w-3 h-3" />}
+                                    label="Analyzing resolution & quality"
+                                    status="complete"
+                                    delay={0.3}
+                                />
+                                <ProcessingItem 
+                                    icon={<Sparkles className="w-3 h-3" />}
+                                    label="Extracting key frames"
+                                    status="processing"
+                                    delay={0.6}
+                                />
+                                <ProcessingItem 
+                                    icon={<MonitorIcon className="w-3 h-3" />}
+                                    label="Scene detection"
+                                    status="processing"
+                                    delay={0.9}
+                                />
+                                <ProcessingItem 
+                                    icon={<CircleUserRound className="w-3 h-3" />}
+                                    label="Face & speaker detection"
+                                    status="pending"
+                                    delay={1.2}
+                                />
+                                <ProcessingItem 
+                                    icon={<Figma className="w-3 h-3" />}
+                                    label="Visual style analysis"
+                                    status="pending"
+                                    delay={1.5}
+                                />
+                                <ProcessingItem 
+                                    icon={<Command className="w-3 h-3" />}
+                                    label="Audio transcription"
+                                    status="pending"
+                                    delay={1.8}
+                                />
+                                <ProcessingItem 
+                                    icon={<Grid3X3 className="w-3 h-3" />}
+                                    label="B-roll opportunities"
+                                    status="pending"
+                                    delay={2.1}
+                                />
+                            </div>
+
+                            {/* Processing Stats */}
+                            <div className="px-4 py-3 border-t border-white/5 bg-white/[0.01]">
+                                <div className="flex items-center justify-between text-[10px] text-white/40 mb-2">
+                                    <span>Analysis Progress</span>
+                                    <span className="text-purple-400">37%</span>
+                                </div>
+                                <div className="h-1 bg-white/5 rounded-full overflow-hidden">
+                                    <motion.div
+                                        className="h-full bg-gradient-to-r from-purple-500 to-violet-500 rounded-full"
+                                        initial={{ width: "0%" }}
+                                        animate={{ width: "37%" }}
+                                        transition={{ duration: 1.5, ease: "easeOut" }}
+                                    />
+                                </div>
+                                <div className="flex items-center gap-1.5 mt-2">
+                                    <motion.div
+                                        className="w-1.5 h-1.5 rounded-full bg-purple-400"
+                                        animate={{ opacity: [1, 0.3, 1] }}
+                                        transition={{ duration: 1, repeat: Infinity }}
+                                    />
+                                    <span className="text-[10px] text-white/50">Processing will continue after import</span>
                                 </div>
                             </div>
                         </div>
