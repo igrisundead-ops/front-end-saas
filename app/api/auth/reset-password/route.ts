@@ -17,9 +17,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Password must be at least 8 characters.' }, { status: 400 })
     }
 
+    // Xano's standard reset-password endpoint accepts magic_token (or token) and password
     await xanoFetch(ENDPOINTS.resetPassword, {
       method: 'POST',
-      body: { token, password },
+      body: { magic_token: token, token, password },
     })
 
     console.log('[api/auth/reset-password] success', { ms: Date.now() - startedAt })
@@ -29,6 +30,16 @@ export async function POST(req: NextRequest) {
     const raw = err instanceof Error ? err.message : 'Reset failed'
     console.error('[api/auth/reset-password] error', { ms: Date.now() - startedAt, raw })
     const friendly = friendlyXanoError(err, 'Password reset failed. The link may have expired.')
+    const lower = (raw + ' ' + friendly).toLowerCase()
+
+    if (lower.includes('unable to locate') || lower.includes('not_found') || lower.includes('404')) {
+      console.error('[api/auth/reset-password] Xano endpoint not found — check ENDPOINTS.resetPassword in lib/xano/config.ts')
+      return NextResponse.json(
+        { error: 'Password reset is not available. Please contact support.' },
+        { status: 501 }
+      )
+    }
+
     return NextResponse.json({ error: friendly }, { status: 400 })
   }
 }

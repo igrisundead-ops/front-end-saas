@@ -14,13 +14,13 @@ export async function POST(req: NextRequest) {
     }
 
     // Call Xano to send the reset link email.
-    // We pass the app's reset-password page URL so Xano can include it in the email.
+    // Build redirect URL so Xano can embed it in the email template.
     const origin = req.headers.get('origin') || req.headers.get('referer')?.replace(/\/[^/]*$/, '') || ''
     const redirectUrl = `${origin}/reset-password`
 
     await xanoFetch(ENDPOINTS.requestPasswordReset, {
       method: 'POST',
-      body: { email, redirect_url: redirectUrl },
+      body: { email, redirect_url: redirectUrl, reset_url: redirectUrl },
     })
 
     console.log('[api/auth/forgot-password] sent', { ms: Date.now() - startedAt, email })
@@ -31,10 +31,21 @@ export async function POST(req: NextRequest) {
     const raw = err instanceof Error ? err.message : 'Request failed'
     console.error('[api/auth/forgot-password] error', { ms: Date.now() - startedAt, raw })
 
-    // If it's a "not found" error from Xano, still return success to prevent email enumeration
     const friendly = friendlyXanoError(err, '')
-    if (friendly.toLowerCase().includes('no account') || friendly.toLowerCase().includes('not found')) {
+    const lower = (raw + ' ' + friendly).toLowerCase()
+
+    // If it's a "not found" error from Xano (user doesn't exist), still return success to prevent email enumeration
+    if (lower.includes('no account') || lower.includes('not found') || lower.includes('no record')) {
       return NextResponse.json({ ok: true })
+    }
+
+    // If the endpoint itself doesn't exist in Xano ("Unable to locate request")
+    if (lower.includes('unable to locate') || lower.includes('not_found') || lower.includes('404')) {
+      console.error('[api/auth/forgot-password] Xano endpoint not found — check ENDPOINTS.requestPasswordReset in lib/xano/config.ts')
+      return NextResponse.json(
+        { error: 'Password reset is not available. Please contact support.' },
+        { status: 501 }
+      )
     }
 
     return NextResponse.json(

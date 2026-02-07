@@ -43,6 +43,9 @@ export function friendlyXanoError(err: unknown, fallback: string): string {
         if (lower.includes('rate limit') || lower.includes('too many')) {
           return 'Too many attempts. Please wait and try again.'
         }
+        if (lower.includes('unable to locate')) {
+          return 'Service endpoint not available. Please contact support.'
+        }
         return xanoMsg
       }
     }
