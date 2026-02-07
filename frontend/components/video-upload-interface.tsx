@@ -474,6 +474,53 @@ export function VideoUploadInterface() {
         setAttachments((prev) => (prev.includes(trimmed) ? prev : [trimmed, ...prev]));
     };
 
+    // Extract YouTube video ID from various URL formats
+    const extractYouTubeVideoId = (url: string): string | null => {
+        const patterns = [
+            /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/v\/|youtube\.com\/shorts\/)([^&?\s]+)/,
+            /^([a-zA-Z0-9_-]{11})$/
+        ];
+        for (const pattern of patterns) {
+            const match = url.match(pattern);
+            if (match && match[1]) return match[1];
+        }
+        return null;
+    };
+
+    const handleImportLink = () => {
+        if (!sourceUrl.trim()) return;
+        
+        if (sourceProvider === "YouTube") {
+            const videoId = extractYouTubeVideoId(sourceUrl.trim());
+            if (videoId) {
+                setPreviewVideoId(videoId);
+                setPreviewVideoTitle(sourceUrl.trim());
+                setShowVideoPreview(true);
+                setShowFileUploadModal(false);
+            } else {
+                // Invalid YouTube URL - still add as chip but no preview
+                addSourceChip(`${sourceProvider}: ${sourceUrl.trim()}`);
+                setSourceUrl("");
+                setShowFileUploadModal(false);
+            }
+        } else {
+            // Non-YouTube sources - just add chip
+            addSourceChip(`${sourceProvider}: ${sourceUrl.trim()}`);
+            setSourceUrl("");
+            setShowFileUploadModal(false);
+        }
+    };
+
+    const handleConfirmVideo = () => {
+        if (previewVideoId) {
+            addSourceChip(`YouTube: https://youtu.be/${previewVideoId}`);
+        }
+        setShowVideoPreview(false);
+        setPreviewVideoId(null);
+        setPreviewVideoTitle("");
+        setSourceUrl("");
+    };
+
     const removeAttachment = (index: number) => {
         setAttachments(prev => prev.filter((_, i) => i !== index));
     };
