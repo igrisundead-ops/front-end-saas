@@ -44,9 +44,10 @@ function asAttachmentArray(value: unknown): AirtableAttachment[] {
 export async function GET(req: Request) {
   const envResult = getAirtableEnv()
   if (!envResult.ok) {
+    // Gracefully return empty items when Airtable is not configured
     return NextResponse.json(
-      { ok: false, where: 'env', missing: envResult.missing },
-      { status: 500 }
+      { ok: true, items: [], configured: false, missing: envResult.missing },
+      { status: 200 }
     )
   }
 

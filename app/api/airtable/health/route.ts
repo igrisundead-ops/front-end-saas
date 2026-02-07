@@ -11,9 +11,10 @@ export const runtime = 'nodejs'
 export async function GET() {
   const envResult = getAirtableEnv()
   if (!envResult.ok) {
+    // Gracefully report not-configured instead of 500
     return NextResponse.json(
-      { ok: false, where: 'env', missing: envResult.missing },
-      { status: 500 }
+      { ok: false, where: 'env', configured: false, missing: envResult.missing },
+      { status: 200 }
     )
   }
 
