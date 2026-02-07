@@ -4,7 +4,7 @@ import { setXanoToken } from '@/lib/auth/cookies'
 import { ENDPOINTS } from '@/lib/xano/config'
 import { xanoFetch } from '@/lib/xano/server'
 
-import { extractToken, ensureEndpoint, getUserVerificationFlag } from '../_utils'
+import { extractToken, ensureEndpoint, getUserVerificationFlag, friendlyXanoError } from '../_utils'
 
 type SignupBody = {
   fullName: string
@@ -59,8 +59,9 @@ export async function POST(req: Request) {
     })
     return NextResponse.json({ user, requiresVerification })
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Signup failed'
-    console.error('[api/auth/signup] error', { ms: Date.now() - startedAt, message })
-    return NextResponse.json({ error: message }, { status: 400 })
+    const raw = err instanceof Error ? err.message : 'Signup failed'
+    console.error('[api/auth/signup] error', { ms: Date.now() - startedAt, raw })
+    const friendly = friendlyXanoError(err, 'Signup failed. Please try again.')
+    return NextResponse.json({ error: friendly }, { status: 400 })
   }
 }
