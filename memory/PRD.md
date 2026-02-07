@@ -35,6 +35,17 @@ User requested to import their GitHub repository (https://github.com/igrisundead
   - Source chip added after import with correct format
   - Chip removal functionality
 
+- ✅ **Enhanced Video Preview Modal**:
+  - Resized popup for better screen fit (max-w-5xl)
+  - **Thumbnail Preview Card**: Shows video thumbnail, HD badge, title, "Ready to import" status
+  - **AI Analysis Panel**: 8 processing steps with animated states:
+    - Complete (green checkmark): Detecting video format, Analyzing resolution & quality
+    - Processing (spinning): Extracting key frames, Scene detection
+    - Pending (grey): Face detection, Visual style analysis, Audio transcription, B-roll opportunities
+  - **Progress Bar**: Animated 37% progress indicator
+  - Compact action buttons: Cancel, Open in YT, Import
+  - Note: AI Analysis is MOCKED (animations only, no actual backend processing)
+
 ## Prioritized Backlog
 
 ### P0 - Critical
