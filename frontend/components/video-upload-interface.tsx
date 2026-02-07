@@ -1394,6 +1394,79 @@ function TypingDots() {
     );
 }
 
+// Processing Item Component for AI Analysis Panel
+interface ProcessingItemProps {
+    icon: React.ReactNode;
+    label: string;
+    status: 'pending' | 'processing' | 'complete';
+    delay: number;
+}
+
+function ProcessingItem({ icon, label, status, delay }: ProcessingItemProps) {
+    return (
+        <motion.div
+            initial={{ opacity: 0, x: -10 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay, duration: 0.3 }}
+            className={cn(
+                "flex items-center gap-2.5 p-2 rounded-lg transition-all",
+                status === 'complete' && "bg-green-500/5",
+                status === 'processing' && "bg-purple-500/10",
+                status === 'pending' && "bg-white/[0.01]"
+            )}
+        >
+            <div className={cn(
+                "p-1.5 rounded-md transition-colors",
+                status === 'complete' && "bg-green-500/10 text-green-400",
+                status === 'processing' && "bg-purple-500/20 text-purple-400",
+                status === 'pending' && "bg-white/5 text-white/30"
+            )}>
+                {status === 'processing' ? (
+                    <motion.div
+                        animate={{ rotate: 360 }}
+                        transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                    >
+                        {icon}
+                    </motion.div>
+                ) : (
+                    icon
+                )}
+            </div>
+            <span className={cn(
+                "text-xs flex-1",
+                status === 'complete' && "text-green-400/80",
+                status === 'processing' && "text-purple-300",
+                status === 'pending' && "text-white/40"
+            )}>
+                {label}
+            </span>
+            <div className="flex-shrink-0">
+                {status === 'complete' && (
+                    <motion.div
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1 }}
+                        className="w-4 h-4 rounded-full bg-green-500/20 flex items-center justify-center"
+                    >
+                        <svg className="w-2.5 h-2.5 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                        </svg>
+                    </motion.div>
+                )}
+                {status === 'processing' && (
+                    <motion.div
+                        className="w-4 h-4 rounded-full border-2 border-purple-400/30 border-t-purple-400"
+                        animate={{ rotate: 360 }}
+                        transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                    />
+                )}
+                {status === 'pending' && (
+                    <div className="w-4 h-4 rounded-full bg-white/5" />
+                )}
+            </div>
+        </motion.div>
+    );
+}
+
 interface ActionButtonProps {
     icon: React.ReactNode;
     label: string;
