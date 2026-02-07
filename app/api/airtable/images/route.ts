@@ -1,45 +1,8 @@
 import { NextResponse } from 'next/server'
-import {
-  AIRTABLE_IMAGE_FIELD_ID,
-  AIRTABLE_NAME_FIELD_ID,
-  getAirtableEnv,
-  readAirtableErrorMessage,
-} from '@/app/api/airtable/_utils'
+import { getAirtableEnv } from '@/app/api/airtable/_utils'
+import { fetchImageArchiveRecords } from '@/lib/server/airtable-client'
 
 export const runtime = 'nodejs'
-
-type AirtableAttachment = {
-  url?: string
-  filename?: string
-  type?: string
-  size?: number
-}
-
-type AirtableRecord = {
-  id: string
-  fields?: Record<string, unknown>
-}
-
-type AirtableListResponse = {
-  records: AirtableRecord[]
-  offset?: string
-}
-
-function clamp(n: number, min: number, max: number) {
-  if (!Number.isFinite(n)) return min
-  return Math.max(min, Math.min(max, n))
-}
-
-function asStringOrNull(value: unknown): string | null {
-  if (typeof value === 'string') return value
-  if (typeof value === 'number') return String(value)
-  return null
-}
-
-function asAttachmentArray(value: unknown): AirtableAttachment[] {
-  if (!Array.isArray(value)) return []
-  return value.filter((x): x is AirtableAttachment => !!x && typeof x === 'object')
-}
 
 export async function GET(req: Request) {
   const envResult = getAirtableEnv()
@@ -52,77 +15,33 @@ export async function GET(req: Request) {
   }
 
   const { token, baseId, tableId } = envResult.env
-  console.log('[Airtable] config', { baseId, tableId })
-
   const { searchParams } = new URL(req.url)
+
   const parsedLimit = Number(searchParams.get('limit') ?? '50')
-  const limit = clamp(Number.isFinite(parsedLimit) ? parsedLimit : 50, 1, 200)
+  const limit = Math.max(1, Math.min(200, Number.isFinite(parsedLimit) ? parsedLimit : 50))
+  const view = searchParams.get('view') || undefined
 
-  const items: Array<{
-    id: string
-    name: string | null
-    images: Array<{ url: string; filename: string; type: string; size: number }>
-  }> = []
-
-  let offset: string | undefined
-
-  while (items.length < limit) {
-    const pageSize = Math.min(100, limit - items.length)
-
-    const params = new URLSearchParams()
-    params.set('pageSize', String(pageSize))
-    params.append('fields[]', AIRTABLE_NAME_FIELD_ID)
-    params.append('fields[]', AIRTABLE_IMAGE_FIELD_ID)
-    if (offset) params.set('offset', offset)
-
-    const url = `https://api.airtable.com/v0/${baseId}/${tableId}?${params.toString()}`
-
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
-      cache: 'no-store',
+  try {
+    const result = await fetchImageArchiveRecords({
+      token,
+      baseId,
+      table: tableId,
+      view,
+      limit,
     })
 
-    if (!res.ok) {
-      const message = await readAirtableErrorMessage(res)
-      console.error('[Airtable] images fetch failed', {
-        baseId,
-        tableId,
-        status: res.status,
-        error: message,
-      })
+    return NextResponse.json(
+      { ok: true, items: result.items, count: result.count },
+      { status: 200 }
+    )
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    const status = (err as { status?: number })?.status ?? 500
+    console.error('[Airtable] images fetch failed', { baseId, tableId, error: message })
 
-      return NextResponse.json(
-        { ok: false, where: 'airtable', status: res.status, error: message },
-        { status: res.status === 403 ? 403 : res.status }
-      )
-    }
-
-    const data = (await res.json()) as AirtableListResponse
-    for (const record of data.records ?? []) {
-      const fields = record.fields ?? {}
-      const name = asStringOrNull(fields[AIRTABLE_NAME_FIELD_ID]) ?? null
-      const attachments = asAttachmentArray(fields[AIRTABLE_IMAGE_FIELD_ID])
-
-      const images = attachments
-        .map((att) => {
-          const url = typeof att.url === 'string' ? att.url : null
-          if (!url) return null
-          return {
-            url,
-            filename: typeof att.filename === 'string' ? att.filename : '',
-            type: typeof att.type === 'string' ? att.type : '',
-            size: typeof att.size === 'number' ? att.size : 0,
-          }
-        })
-        .filter((x): x is NonNullable<typeof x> => !!x)
-
-      items.push({ id: record.id, name, images })
-      if (items.length >= limit) break
-    }
-
-    offset = data.offset
-    if (!offset) break
+    return NextResponse.json(
+      { ok: false, where: 'airtable', error: message },
+      { status }
+    )
   }
-
-  return NextResponse.json({ ok: true, items }, { status: 200 })
 }
