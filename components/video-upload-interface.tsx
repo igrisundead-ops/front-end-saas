@@ -196,7 +196,7 @@ export function VideoUploadInterface() {
     const [, startTransition] = useTransition();
 
     const [templatesOpen, setTemplatesOpen] = useState(false);
-    const [airtableStylePreviews, setAirtableStylePreviews] = useState<Record<string, string[]>>({});
+    const [airtableStylePreviews, setAirtableStylePreviews] = useState<Record<string, string>>({});
     const [failedImages, setFailedImages] = useState<Record<string, true>>({});
     const [activeStyleId, setActiveStyleId] = useState<string | null>(null);
     const [projectId, setProjectId] = useState<string | null>(null);
@@ -317,43 +317,33 @@ export function VideoUploadInterface() {
 
                 // If Airtable is not configured, skip silently
                 if (data.configured === false) {
-                    console.log("[v0] Airtable not configured, skipping style previews");
+    
                     if (!cancelled) setAirtableStylePreviews({});
                     return;
                 }
 
-                console.log("[v0] Airtable response: items count =", data.items?.length ?? 0);
 
-                const byStyle: Record<string, string[]> = {};
+
+                // Build a map: normalized key -> single image URL (first match wins)
+                const byStyle: Record<string, string> = {};
 
                 for (const item of data.items ?? []) {
-                    // Index by both styleKey and name for flexible matching
                     const src = item.thumbUrl ?? item.imageUrl ?? null;
                     if (!src) continue;
 
+                    // Index by styleKey and name separately — exact normalized keys only
                     const keys: string[] = [];
                     if (item.styleKey) keys.push(norm(item.styleKey));
                     if (item.name) keys.push(norm(item.name));
 
                     for (const key of keys) {
                         if (!key) continue;
-                        (byStyle[key] ??= []).push(src);
+                        // First image for this key wins
+                        if (!byStyle[key]) byStyle[key] = src;
                     }
                 }
 
-                for (const key of Object.keys(byStyle)) {
-                    byStyle[key] = Array.from(new Set(byStyle[key])).slice(0, 3);
-                }
 
-                console.log("[v0] Airtable styleKeys indexed:", Object.keys(byStyle));
-
-                // Log the template candidates we'll try to match
-                const templateCandidates = STYLE_TEMPLATES.map((t) => ({
-                    id: t.id,
-                    name: t.name,
-                    candidates: [t.id, t.name, t.id.replace(/^style_/, "")].map(norm),
-                }));
-                console.log("[v0] Template matching candidates:", templateCandidates);
 
                 if (!cancelled) setAirtableStylePreviews(byStyle);
             } catch (err) {
@@ -1003,29 +993,21 @@ export function VideoUploadInterface() {
                                         .replace(/[^a-z0-9]+/g, "-")
                                         .replace(/(^-|-$)/g, "");
 
+                                // Build exact-match candidates only (no partial/fuzzy matching)
                                 const candidates = [
                                     template.id,
                                     template.name,
                                     template.id.replace(/^style_/, ""),
-                                    // Also try with underscores converted to dashes and vice versa
                                     template.id.replace(/_/g, "-"),
                                     template.id.replace(/^style_/, "").replace(/_/g, "-"),
                                 ].map(norm);
 
-                                const matchedKey = candidates.find((k) => !!airtableStylePreviews[k])
-                                    // Fallback: partial match - check if any airtable key contains a candidate
-                                    ?? Object.keys(airtableStylePreviews).find((aKey) =>
-                                        candidates.some((c) => c.length > 2 && (aKey.includes(c) || c.includes(aKey)))
-                                    );
+                                const matchedKey = candidates.find((k) => !!airtableStylePreviews[k]);
 
-                                const previewImages = matchedKey
-                                    ? airtableStylePreviews[matchedKey]
-                                    : template.previewImages;
-                                const hasPreviews = previewImages.length > 0;
-                                const source =
-                                    matchedKey && airtableStylePreviews[matchedKey]?.length > 0
-                                        ? "airtable"
-                                        : "fallback";
+                                // Single preview image: Airtable match or first local fallback
+                                const airtableSrc = matchedKey ? airtableStylePreviews[matchedKey] : null;
+                                const previewSrc = airtableSrc ?? template.previewImages[0] ?? null;
+                                const source = airtableSrc ? "airtable" : "fallback";
                                 return (
                                     <button
                                         key={template.id}
@@ -1042,63 +1024,23 @@ export function VideoUploadInterface() {
                                         )}
                                     >
                                         <div className="flex gap-3">
-                                            <div className="hidden sm:grid grid-cols-3 gap-2">
-                                                {hasPreviews ? (
-                                                    previewImages.slice(0, 3).map((src) => (
-                                                        <div
-                                                            key={src}
-                                                            className="relative h-16 w-24 overflow-hidden rounded-lg border border-white/10"
-                                                        >
-                                                            {failedImages[src] ? (
-                                                                <div className="flex h-full w-full items-center justify-center bg-white/[0.03] text-white/40">
-                                                                    <ImageIcon className="h-4 w-4" />
-                                                                </div>
-                                                            ) : (
-                                                                <Image
-                                                                    src={src}
-                                                                    alt=""
-                                                                    fill
-                                                                    className="object-cover"
-                                                                    sizes="96px"
-                                                                    unoptimized
-                                                                    onError={() =>
-                                                                        setFailedImages((m) => ({ ...m, [src]: true }))
-                                                                    }
-                                                                />
-                                                            )}
-                                                        </div>
-                                                    ))
-                                                ) : (
-                                                    <div className="flex h-16 w-24 items-center justify-center overflow-hidden rounded-lg border border-white/10 bg-white/[0.03] text-white/40">
-                                                        <ImageIcon className="h-4 w-4" />
-                                                    </div>
-                                                )}
-                                            </div>
-                                            <div className="sm:hidden relative h-24 w-full overflow-hidden rounded-lg border border-white/10">
-                                                {hasPreviews ? (
-                                                    failedImages[previewImages[0]] ? (
-                                                        <div className="flex h-full w-full items-center justify-center bg-white/[0.03] text-white/40">
-                                                            <ImageIcon className="h-5 w-5" />
-                                                        </div>
-                                                    ) : (
-                                                        <Image
-                                                            src={previewImages[0]}
-                                                            alt=""
-                                                            fill
-                                                            className="object-cover"
-                                                            sizes="100vw"
-                                                            unoptimized
-                                                            onError={() =>
-                                                                setFailedImages((m) => ({
-                                                                    ...m,
-                                                                    [previewImages[0]]: true,
-                                                                }))
-                                                            }
-                                                        />
-                                                    )
+                                            {/* Single preview thumbnail */}
+                                            <div className="relative h-16 w-24 shrink-0 overflow-hidden rounded-lg border border-white/10">
+                                                {previewSrc && !failedImages[previewSrc] ? (
+                                                    <Image
+                                                        src={previewSrc}
+                                                        alt={`${template.name} preview`}
+                                                        fill
+                                                        className="object-cover"
+                                                        sizes="96px"
+                                                        unoptimized
+                                                        onError={() =>
+                                                            setFailedImages((m) => ({ ...m, [previewSrc]: true }))
+                                                        }
+                                                    />
                                                 ) : (
                                                     <div className="flex h-full w-full items-center justify-center bg-white/[0.03] text-white/40">
-                                                        <ImageIcon className="h-5 w-5" />
+                                                        <ImageIcon className="h-4 w-4" />
                                                     </div>
                                                 )}
                                             </div>
