@@ -206,6 +206,9 @@ export function VideoUploadInterface() {
     const [sourceProvider, setSourceProvider] = useState("YouTube");
     const [sourceUrl, setSourceUrl] = useState("");
     const [activeSlashCommand, setActiveSlashCommand] = useState<ActiveSlashCommand | null>(null);
+    const [showVideoPreview, setShowVideoPreview] = useState(false);
+    const [previewVideoId, setPreviewVideoId] = useState<string | null>(null);
+    const [previewVideoTitle, setPreviewVideoTitle] = useState<string>("");
 
     const activeStyle = React.useMemo(
         () => STYLE_TEMPLATES.find((s) => s.id === activeStyleId) ?? null,
