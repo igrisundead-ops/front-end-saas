@@ -887,14 +887,15 @@ export function VideoUploadInterface() {
                                         value={sourceUrl}
                                         onChange={(e) => setSourceUrl(e.target.value)}
                                         placeholder="Paste a link…"
+                                        onKeyDown={(e) => {
+                                            if (e.key === "Enter") {
+                                                e.preventDefault();
+                                                handleImportLink();
+                                            }
+                                        }}
                                     />
                                     <Button
-                                        onClick={() => {
-                                            if (!sourceUrl.trim()) return;
-                                            addSourceChip(`${sourceProvider} imported`);
-                                            setSourceUrl("");
-                                            setShowFileUploadModal(false);
-                                        }}
+                                        onClick={handleImportLink}
                                         className="bg-white text-[#0A0A0B] hover:bg-white/90"
                                     >
                                         Import
