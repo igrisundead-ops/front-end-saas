@@ -207,6 +207,12 @@ export function VideoUploadInterface() {
     const [sourceUrl, setSourceUrl] = useState("");
     const [activeSlashCommand, setActiveSlashCommand] = useState<ActiveSlashCommand | null>(null);
 
+    // Video upload to Xano state
+    const [isUploading, setIsUploading] = useState(false);
+    const [uploadProgress, setUploadProgress] = useState(0);
+    const [uploadError, setUploadError] = useState<string | null>(null);
+    const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
+
     const activeStyle = React.useMemo(
         () => STYLE_TEMPLATES.find((s) => s.id === activeStyleId) ?? null,
         [activeStyleId]
