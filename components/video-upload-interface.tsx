@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useCallback, useTransition } from "react";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 import {
@@ -32,6 +32,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { SendPopup } from "@/components/ui/send-popup";
 import { FileUpload } from "@/components/ui/file-upload";
 import { STYLE_TEMPLATES } from "@/lib/styles/style-templates";
@@ -177,6 +178,7 @@ Textarea.displayName = "Textarea"
 
 export function VideoUploadInterface() {
     const router = useRouter();
+    const searchParams = useSearchParams();
     const [value, setValue] = useState("");
     const [showCommandPalette, setShowCommandPalette] = useState(false);
     const [showFileUploadModal, setShowFileUploadModal] = useState(false);
@@ -202,6 +204,11 @@ export function VideoUploadInterface() {
     const [projectId, setProjectId] = useState<string | null>(null);
     const [job, setJob] = useState<ProcessingJob | null>(null);
     const [sendOpen, setSendOpen] = useState(false);
+    const [previewAnimationsEnabled, setPreviewAnimationsEnabled] = useState(
+        searchParams.get("previewAnimations") === "1"
+    );
+    const hasAutoRoutedPreviewRef = useRef(false);
+    const queryPreviewAnimations = searchParams.get("previewAnimations") === "1";
 
     const [sourceProvider, setSourceProvider] = useState("YouTube");
     const [sourceUrl, setSourceUrl] = useState("");
@@ -211,6 +218,12 @@ export function VideoUploadInterface() {
         () => STYLE_TEMPLATES.find((s) => s.id === activeStyleId) ?? null,
         [activeStyleId]
     );
+
+    useEffect(() => {
+        if (queryPreviewAnimations) {
+            setPreviewAnimationsEnabled(true);
+        }
+    }, [queryPreviewAnimations]);
 
     const commandSuggestions: CommandSuggestion[] = [
         { 
@@ -434,6 +447,7 @@ export function VideoUploadInterface() {
 
         startTransition(() => {
             setIsTyping(true);
+            hasAutoRoutedPreviewRef.current = false;
 
             const titleBase =
                 uploadedFileName?.trim().length > 0
@@ -483,6 +497,28 @@ export function VideoUploadInterface() {
         setRecentCommand(selectedCommand.label);
         setTimeout(() => setRecentCommand(null), 2000);
     };
+
+    const buildEditorHref = useCallback(
+        (id: string | null) => {
+            if (!id) return "/editor";
+            const params = new URLSearchParams();
+            if (previewAnimationsEnabled) params.set("previewAnimations", "1");
+            const query = params.toString();
+            return query ? `/editor/${id}?${query}` : `/editor/${id}`;
+        },
+        [previewAnimationsEnabled]
+    );
+
+    useEffect(() => {
+        if (!previewAnimationsEnabled) return;
+        if (!projectId || !job || hasAutoRoutedPreviewRef.current) return;
+
+        const audioStep = job.steps.find((step) => step.key === "audio-processing");
+        if (audioStep?.status !== "completed") return;
+
+        hasAutoRoutedPreviewRef.current = true;
+        router.push(buildEditorHref(projectId));
+    }, [buildEditorHref, job, previewAnimationsEnabled, projectId, router]);
 
     return (
         <div className="min-h-screen flex flex-col w-full items-center justify-center bg-transparent text-white p-6 relative overflow-hidden">
@@ -681,55 +717,67 @@ export function VideoUploadInterface() {
                         </AnimatePresence>
 
                         <div className="p-4 border-t border-white/[0.05] flex items-center justify-between gap-4">
-                            <div className="flex items-center gap-3">
-                                <motion.button
-                                    type="button"
-                                    onClick={() => setShowFileUploadModal(true)}
-                                    whileTap={{ scale: 0.94 }}
-                                    className="p-2 text-white/40 hover:text-white/90 rounded-lg transition-colors relative group"
-                                    title="Add source"
-                                >
-                                    <LinkIcon className="w-4 h-4" />
-                                    <motion.span
-                                        className="absolute inset-0 bg-white/[0.05] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
-                                        layoutId="button-highlight"
-                                    />
-                                </motion.button>
-                                <motion.button
-                                    type="button"
-                                    onClick={() => setTemplatesOpen(true)}
-                                    whileTap={{ scale: 0.94 }}
-                                    className={cn(
-                                        "p-2 text-white/40 hover:text-white/90 rounded-lg transition-colors relative group",
-                                        templatesOpen && "bg-white/10 text-white/90"
-                                    )}
-                                    title="Templates and styles"
-                                >
-                                    <Grid3X3 className="w-4 h-4" />
-                                    <motion.span
-                                        className="absolute inset-0 bg-white/[0.05] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
-                                        layoutId="button-highlight"
-                                    />
-                                </motion.button>
-                                <motion.button
-                                    type="button"
-                                    data-command-button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        setShowCommandPalette(prev => !prev);
-                                    }}
-                                    whileTap={{ scale: 0.94 }}
-                                    className={cn(
-                                        "p-2 text-white/40 hover:text-white/90 rounded-lg transition-colors relative group",
-                                        showCommandPalette && "bg-white/10 text-white/90"
-                                    )}
-                                >
-                                    <Command className="w-4 h-4" />
-                                    <motion.span
-                                        className="absolute inset-0 bg-white/[0.05] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
-                                        layoutId="button-highlight"
-                                    />
-                                </motion.button>
+                            <div className="flex flex-wrap items-center gap-3">
+                                <div className="flex items-center gap-3">
+                                    <motion.button
+                                        type="button"
+                                        onClick={() => setShowFileUploadModal(true)}
+                                        whileTap={{ scale: 0.94 }}
+                                        className="p-2 text-white/40 hover:text-white/90 rounded-lg transition-colors relative group"
+                                        title="Add source"
+                                    >
+                                        <LinkIcon className="w-4 h-4" />
+                                        <motion.span
+                                            className="absolute inset-0 bg-white/[0.05] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                                            layoutId="button-highlight"
+                                        />
+                                    </motion.button>
+                                    <motion.button
+                                        type="button"
+                                        onClick={() => setTemplatesOpen(true)}
+                                        whileTap={{ scale: 0.94 }}
+                                        className={cn(
+                                            "p-2 text-white/40 hover:text-white/90 rounded-lg transition-colors relative group",
+                                            templatesOpen && "bg-white/10 text-white/90"
+                                        )}
+                                        title="Templates and styles"
+                                    >
+                                        <Grid3X3 className="w-4 h-4" />
+                                        <motion.span
+                                            className="absolute inset-0 bg-white/[0.05] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                                            layoutId="button-highlight"
+                                        />
+                                    </motion.button>
+                                    <motion.button
+                                        type="button"
+                                        data-command-button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setShowCommandPalette(prev => !prev);
+                                        }}
+                                        whileTap={{ scale: 0.94 }}
+                                        className={cn(
+                                            "p-2 text-white/40 hover:text-white/90 rounded-lg transition-colors relative group",
+                                            showCommandPalette && "bg-white/10 text-white/90"
+                                        )}
+                                    >
+                                        <Command className="w-4 h-4" />
+                                        <motion.span
+                                            className="absolute inset-0 bg-white/[0.05] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                                            layoutId="button-highlight"
+                                        />
+                                    </motion.button>
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-4">
+                                    <label className="flex items-center gap-2 text-[11px] text-white/65">
+                                        <span>Preview Animations</span>
+                                        <Switch
+                                            checked={previewAnimationsEnabled}
+                                            onCheckedChange={setPreviewAnimationsEnabled}
+                                        />
+                                    </label>
+                                </div>
                             </div>
                             
                             <motion.button
@@ -790,7 +838,7 @@ export function VideoUploadInterface() {
                 open={sendOpen}
                 onOpenChange={setSendOpen}
                 onOpenEditor={() => {
-                    router.push(projectId ? `/editor/${projectId}` : "/editor");
+                    router.push(buildEditorHref(projectId));
                 }}
             />
 
@@ -836,7 +884,7 @@ export function VideoUploadInterface() {
                                     <Input
                                         value={sourceUrl}
                                         onChange={(e) => setSourceUrl(e.target.value)}
-                                        placeholder="Paste a link…"
+                                        placeholder="Paste a link..."
                                     />
                                     <Button
                                         onClick={() => {

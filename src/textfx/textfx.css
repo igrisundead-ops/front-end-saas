@@ -1,0 +1,17 @@
+.textfx-readable {
+  color: rgba(255, 255, 255, 0.92);
+  text-shadow:
+    0 2px 18px rgba(0, 0, 0, 0.85),
+    0 0 38px rgba(0, 0, 0, 0.55);
+}
+
+.textfx-stroke {
+  -webkit-text-stroke: 1px rgba(0, 0, 0, 0.55);
+  paint-order: stroke fill;
+}
+
+.textfx-plate {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  backdrop-filter: blur(10px);
+}
