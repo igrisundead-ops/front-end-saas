@@ -1,0 +1,11 @@
+{
+  "composition": "CinematicRender",
+  "outPath": "/content/out.mp4",
+  "inputProps": {
+    "videoSrc": "/content/input.mp4",
+    "captionsSrc": "/content/captions.json",
+    "stylePreset": "SAFE_GRACIOSI",
+    "debug": false
+  }
+}
+
